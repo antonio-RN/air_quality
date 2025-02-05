@@ -1,0 +1,31 @@
+---
+title: "Air quality report - data exploration"
+format: 
+    html:
+        #eval: false
+        code-fold: true
+        code-overflow: scroll
+---
+
+## Introduction
+
+This is an exploratory analysis of air quality reports for Catalonia region, updated as of 02/05/2025. Data is downloaded from the [open data portal](https://administraciodigital.gencat.cat/ca/dades/dades-obertes/inici/index.html#googtrans(ca|en)) of Catalan Government (Generalitat de Catalunya), and includes hourly air quality metrics as well as geospatial information of the capture points.
+
+The objective of this analysis is to find the biggest contributors to air pollution.
+
+```{python}
+py_ver = !python --version
+print(f"Python version (virtual environment):{py_ver[0]}\n\n")
+
+!kedro -V
+```
+
+## Project workflow
+
+The analysis is structured around a [kedro](https://docs.kedro.org/en/stable/introduction/index.html) basic workflow, written in Python and uses the following packages:
+
+- uv (package dependency manager)
+- quarto (report renderer)
+- pandas (data wrangling)
+- altair (data visualization)
+- geopandas (geospatial analysis)
