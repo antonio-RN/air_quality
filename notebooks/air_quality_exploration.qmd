@@ -29,3 +29,25 @@ The analysis is structured around a [kedro](https://docs.kedro.org/en/stable/int
 - pandas (data wrangling)
 - altair (data visualization)
 - geopandas (geospatial analysis)
+
+WIP
+
+## Data structure
+
+The raw data is a unique CSV file with the following columns:
+
+```{python}
+from kedro.io import DataCatalog
+import pandas as pd
+import yaml
+
+with open("../conf/base/catalog.yml", "r") as f:
+    conf_catalog = yaml.safe_load(f)
+
+catalog = DataCatalog.from_config(conf_catalog)
+pd_raw = catalog.load("air_quality_log")
+```
+
+```{python}
+pd_raw.info()
+```
