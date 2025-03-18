@@ -9,7 +9,7 @@ format:
 
 ## Introduction
 
-This is an exploratory analysis of air quality reports for Catalonia region, updated as of 02/05/2025. 
+This is an exploratory analysis of air quality reports for Catalonia region, updated as of 05/02/2025. 
 Data is downloaded from the [open data portal](https://administraciodigital.gencat.cat/ca/dades/dades-obertes/inici/index.html#googtrans(ca|en)) 
 of Catalan Government (Generalitat de Catalunya), and includes hourly air quality metrics as well as 
 geospatial information of the capture points.
@@ -34,7 +34,7 @@ basic workflow, written in Python and uses the following packages:
 - altair (data visualization)
 - geopandas (geospatial analysis)
 
-WIP
+WIP --> to be updated as the analysis progresses.
 
 ## Data structure
 
@@ -48,8 +48,8 @@ import yaml
 with open("../conf/base/catalog.yml", "r") as f:
     conf_catalog = yaml.safe_load(f)
 
-catalog = DataCatalog.from_config(conf_catalog)
-pd_raw = catalog.load("air_quality_log")
+catalog = DataCatalog.from_config(conf_catalog);
+pd_raw = catalog.load("air_quality_log");
 ```
 
 ```{python}
@@ -60,17 +60,14 @@ The contained data can be divided in the following content types:
 
 - Identification: columns 0, 1
 - Time: column 2 (and partially columns 12-35)
-- Location: columns 7, 8?, 9, 10, 11, 36, 37, 38, 39
-- Technical station info: column 6
+- Location: columns 6, 7, 8, 9, 10, 11, 36, 37, 38, 39
 - Measurement info: columns 3, 4, 5, 12-35
 
 Data structure doesn't follow a strict "row per measurement" lemma, 
 as every row of the file contains 24 data measurements (hourly average per each day).
-Also there seems to be stations that capture different air parameters at the same time,
-but in the original data each parameter is written in a different line.
 
 Some rework will have to be done for easier anaylisis, pivoting the data in order to have
-one row for each time measurement (per station), with as many columns as different air parameters are.
+one row for each time measurement per station and per parameter.
 
 ```{python}
 print(f"Different air parameters or contaminants: {pd_raw.loc[:,"CONTAMINANT"].nunique()}")
@@ -78,6 +75,41 @@ pd_raw.loc[:,"CONTAMINANT"].unique()
 ```
 
 Data types seem apropiate to the content. Once pivoted, however, new data types will have to be added, 
-such as timestamp for the combined date + hour information. The geographic information, which is plain text or floats,
-will have to be converted for geospatial analysis. This will be done by converting the whole data type from a pandas
-normal DataFrame to a geopandas GeoDataFrame (which will retain all of its previous columns plus a 'geometry' column).
+such as timestamp for the combined date + hour information. The geographic information, which is plain text
+or floats, will have to be converted for geospatial analysis. This will be done by converting the whole data 
+type from a pandas normal DataFrame to a geopandas GeoDataFrame (which will retain all of its previous columns plus a 'geometry' column).
+
+```{python}
+pd_raw.loc[:, "Georeferència"].isna().value_counts()
+```
+
+```{python}
+from datetime import datetime, timedelta
+
+# Pivot the dataframe to have one row per time measurement and as many columns as different air parameters are.
+pd_bronze = (
+    pd_raw
+    .head(25)       # Limit to 25 rows for demonstration purposes, remove for full analysis
+    .melt(id_vars=["CODI EOI", "NOM ESTACIO", "DATA", "MAGNITUD", "UNITATS", "TIPUS ESTACIO", "AREA URBANA", 
+    "CODI INE", "MUNICIPI", "CODI COMARCA", "NOM COMARCA", "ALTITUD", "LATITUD", "LONGITUD", "Georeferència"],
+    value_vars=["01h", "02h", "03h", "04h", "05h", "06h", "07h", "08h", "09h", "10h", "11h", "12h", "13h",
+    "14h", "15h", "16h", "17h", "18h", "19h", "20h", "21h", "22h", "23h", "24h"],
+    var_name="HORA", value_name="VALOR")
+)
+pd_bronze.head()
+
+# Convert the date and time columns to a single timestamp column.
+pd_bronze.loc[:, "HORA"] = pd_bronze.loc[:, "HORA"].str.replace("h", "").astype(int)-1
+
+pd_bronze = pd_bronze.assign(
+    DATA_HORA=lambda s: s.apply(
+        lambda row: datetime.strptime(
+            row.loc["DATA"] + " " + str(row.loc["HORA"]) + ":00"
+        , "%d/%m/%Y %H:%M"
+        ) + timedelta(hours=1),
+    axis=1
+)
+).drop(columns=["DATA", "HORA"])
+
+pd_bronze.head()
+```
