@@ -45,22 +45,23 @@ from kedro.io import DataCatalog
 import pandas as pd
 import yaml
 
+# kedro catalog creation and loading
 with open("../conf/base/catalog.yml", "r") as f:
     conf_catalog = yaml.safe_load(f)
 
 catalog = DataCatalog.from_config(conf_catalog);
-pd_raw = catalog.load("air_quality_log");
+df_raw = catalog.load("air_quality_log");
 ```
 
 ```{python}
-pd_raw.info()
+df_raw.info()
 ```
 
 The contained data can be divided in the following content types:
 
 - Identification: columns 0, 1
 - Time: column 2 (and partially columns 12-35)
-- Location: columns 6, 7, 8, 9, 10, 11, 36, 37, 38, 39
+- Location: columns 6, 7, 8, 9, 10, 11, 36, 37, 38, 39 (empty)
 - Measurement info: columns 3, 4, 5, 12-35
 
 Data structure doesn't follow a strict "row per measurement" lemma, 
@@ -70,8 +71,8 @@ Some rework will have to be done for easier anaylisis, pivoting the data in orde
 one row for each time measurement per station and per parameter.
 
 ```{python}
-print(f"Different air parameters or contaminants: {pd_raw.loc[:,"CONTAMINANT"].nunique()}")
-pd_raw.loc[:,"CONTAMINANT"].unique()
+print(f"Different air parameters or contaminants: {df_raw.loc[:,"CONTAMINANT"].nunique()}")
+df_raw.loc[:,"CONTAMINANT"].unique()
 ```
 
 Data types seem apropiate to the content. Once pivoted, however, new data types will have to be added, 
@@ -80,28 +81,25 @@ or floats, will have to be converted for geospatial analysis. This will be done 
 type from a pandas normal DataFrame to a geopandas GeoDataFrame (which will retain all of its previous columns plus a 'geometry' column).
 
 ```{python}
-pd_raw.loc[:, "Georeferència"].isna().value_counts()
-```
-
-```{python}
 from datetime import datetime, timedelta
+import geopandas as gpd
 
-# Pivot the dataframe to have one row per time measurement and as many columns as different air parameters are.
-pd_bronze = (
-    pd_raw
-    .head(25)       # Limit to 25 rows for demonstration purposes, remove for full analysis
+# Pivot the dataframe to have one row per time measurement per parameter
+df_bronze = (
+    df_raw
+    .drop(columns=["Georeferència"])
+    .head(5000)       # Limit to 50 rows for demonstration purposes, remove for full analysis
     .melt(id_vars=["CODI EOI", "NOM ESTACIO", "DATA", "MAGNITUD", "UNITATS", "TIPUS ESTACIO", "AREA URBANA", 
-    "CODI INE", "MUNICIPI", "CODI COMARCA", "NOM COMARCA", "ALTITUD", "LATITUD", "LONGITUD", "Georeferència"],
+    "CODI INE", "MUNICIPI", "CODI COMARCA", "NOM COMARCA", "ALTITUD", "LATITUD", "LONGITUD"],
     value_vars=["01h", "02h", "03h", "04h", "05h", "06h", "07h", "08h", "09h", "10h", "11h", "12h", "13h",
     "14h", "15h", "16h", "17h", "18h", "19h", "20h", "21h", "22h", "23h", "24h"],
     var_name="HORA", value_name="VALOR")
 )
-pd_bronze.head()
 
 # Convert the date and time columns to a single timestamp column.
-pd_bronze.loc[:, "HORA"] = pd_bronze.loc[:, "HORA"].str.replace("h", "").astype(int)-1
+df_bronze.loc[:, "HORA"] = df_bronze.loc[:, "HORA"].str.replace("h", "").astype(int)-1
 
-pd_bronze = pd_bronze.assign(
+df_bronze = df_bronze.assign(
     DATA_HORA=lambda s: s.apply(
         lambda row: datetime.strptime(
             row.loc["DATA"] + " " + str(row.loc["HORA"]) + ":00"
@@ -111,5 +109,15 @@ pd_bronze = pd_bronze.assign(
 )
 ).drop(columns=["DATA", "HORA"])
 
-pd_bronze.head()
+# Create a geodataframe with the geometry taken from the coordinates in "LATITUD" and "LONGITUD"
+gdf_bronze = gpd.GeoDataFrame(
+    df_bronze, geometry=gpd.points_from_xy(
+        df_bronze.loc[:,"LATITUD"], df_bronze.loc[:,"LONGITUD"],crs="EPSG:4326"
+    )
+).drop(columns=["LATITUD", "LONGITUD"])
+
+# Remove measurements with missing value
+gdf_bronze = gdf_bronze.dropna(subset=["VALOR"])
+
+gdf_bronze.head()
 ```
