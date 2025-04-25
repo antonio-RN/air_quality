@@ -9,12 +9,12 @@ format:
 
 ## Introduction
 
-This is an exploratory analysis of air quality reports for Catalonia region, updated as of 05/02/2025. 
+This is an exploratory analysis of air quality reports for Catalonia region, updated as of 15/02/2025. 
 Data is downloaded from the [open data portal](https://administraciodigital.gencat.cat/ca/dades/dades-obertes/inici/index.html#googtrans(ca|en)) 
 of Catalan Government (Generalitat de Catalunya), and includes hourly air quality metrics as well as 
 geospatial information of the capture points.
 
-The objective of this analysis is to find the biggest contributors to air pollution.
+The objective of this analysis is to find the biggest contributors to air pollution in Catalonia for the time period of the data. In order to get to this, both time evolution and geographic position will be taken into account.
 
 ```{python}
 py_ver = !python --version
@@ -38,7 +38,7 @@ WIP --> to be updated as the analysis progresses.
 
 ## Data structure
 
-The raw data is a unique CSV file with the following columns:
+The raw data is a unique CSV file with the following columns and data types:
 
 ```{python}
 from kedro.io import DataCatalog
@@ -57,7 +57,7 @@ df_raw = catalog.load("air_quality_log");
 df_raw.info()
 ```
 
-The contained data can be divided in the following content types:
+The contained data can be divided in the following categories:
 
 - Identification: columns 0, 1
 - Time: column 2 (and partially columns 12-35)
@@ -88,14 +88,16 @@ import geopandas as gpd
 df_bronze = (
     df_raw
     .drop(columns=["Georeferència"])
-    .head(5000)       # Limit to 50 rows for demonstration purposes, remove for full analysis
+    .head(50000)       # Limit to 50k rows for demonstration purposes, remove for full analysis
     .melt(id_vars=["CODI EOI", "NOM ESTACIO", "DATA", "MAGNITUD", "UNITATS", "TIPUS ESTACIO", "AREA URBANA", 
     "CODI INE", "MUNICIPI", "CODI COMARCA", "NOM COMARCA", "ALTITUD", "LATITUD", "LONGITUD"],
     value_vars=["01h", "02h", "03h", "04h", "05h", "06h", "07h", "08h", "09h", "10h", "11h", "12h", "13h",
     "14h", "15h", "16h", "17h", "18h", "19h", "20h", "21h", "22h", "23h", "24h"],
     var_name="HORA", value_name="VALOR")
 )
+```
 
+```{python}
 # Convert the date and time columns to a single timestamp column.
 df_bronze.loc[:, "HORA"] = df_bronze.loc[:, "HORA"].str.replace("h", "").astype(int)-1
 
@@ -109,6 +111,8 @@ df_bronze = df_bronze.assign(
 )
 ).drop(columns=["DATA", "HORA"])
 
+#del df_raw
+
 # Create a geodataframe with the geometry taken from the coordinates in "LATITUD" and "LONGITUD"
 gdf_bronze = gpd.GeoDataFrame(
     df_bronze, geometry=gpd.points_from_xy(
@@ -116,8 +120,10 @@ gdf_bronze = gpd.GeoDataFrame(
     )
 ).drop(columns=["LATITUD", "LONGITUD"])
 
-# Remove measurements with missing value
-gdf_bronze = gdf_bronze.dropna(subset=["VALOR"])
+del df_bronze
 
 gdf_bronze.head()
 ```
+
+## Missing values
+
