@@ -88,8 +88,8 @@ import geopandas as gpd
 df_bronze = (
     df_raw
     .drop(columns=["Georeferència"])
-    .head(50000)       # Limit to 50k rows for demonstration purposes, remove for full analysis
-    .melt(id_vars=["CODI EOI", "NOM ESTACIO", "DATA", "MAGNITUD", "UNITATS", "TIPUS ESTACIO", "AREA URBANA", 
+    .head(1000000)       # Limit to 1M rows for demonstration purposes, remove for full analysis
+    .melt(id_vars=["CODI EOI", "NOM ESTACIO", "DATA", "MAGNITUD", "CONTAMINANT", "UNITATS", "TIPUS ESTACIO", "AREA URBANA", 
     "CODI INE", "MUNICIPI", "CODI COMARCA", "NOM COMARCA", "ALTITUD", "LATITUD", "LONGITUD"],
     value_vars=["01h", "02h", "03h", "04h", "05h", "06h", "07h", "08h", "09h", "10h", "11h", "12h", "13h",
     "14h", "15h", "16h", "17h", "18h", "19h", "20h", "21h", "22h", "23h", "24h"],
@@ -111,7 +111,7 @@ df_bronze = df_bronze.assign(
 )
 ).drop(columns=["DATA", "HORA"])
 
-#del df_raw
+del df_raw
 
 # Create a geodataframe with the geometry taken from the coordinates in "LATITUD" and "LONGITUD"
 gdf_bronze = gpd.GeoDataFrame(
@@ -125,5 +125,32 @@ del df_bronze
 gdf_bronze.head()
 ```
 
-## Missing values
+## Peek of the data
+
+Let's select a random station and air quality magnitude to plot it and see how it looks like.
+
+```{python}
+import altair as alt
+
+# Select a random station and air quality magnitude
+station = gdf_bronze.loc[:,"NOM ESTACIO"].sample(1).values[0]
+magnitude = gdf_bronze.loc[:,"CONTAMINANT"].sample(1).values[0]
+
+random_parameter = gdf_bronze.query("`NOM ESTACIO` == @station & CONTAMINANT == @magnitude").loc[:,["DATA_HORA","VALOR", "UNITATS"]].sort_values(by="DATA_HORA")
+
+unit = random_parameter.loc[:,"UNITATS"].unique()[0]
+
+print(f"Random station: {station}")
+print(f"Random magnitude: {magnitude}")
+print(f"Random mangitude unit: {unit}")
+```
+
+```{python}
+# Plot the data of the latest 240 measurements
+alt.Chart(random_parameter.tail(240)).mark_line().encode(
+    x=alt.X("DATA_HORA:T", title="Date"),
+    y=alt.Y("VALOR:Q", title=f"Air Quality Parameter {magnitude} [{unit}]"),
+    tooltip=["DATA_HORA", "VALOR"]
+)
+```
 
