@@ -2,31 +2,24 @@
 title: "Air quality report - data exploration"
 format: 
     html:
-        #eval: false
+        eval: false
         code-fold: true
         code-overflow: scroll
 ---
 
 ## Introduction
 
-This is an exploratory analysis of air quality reports for Catalonia region, updated as of 15/02/2025. 
+This is an exploratory analysis of air quality reports for Catalonia region, updated as of 14/05/2025. 
 Data is downloaded from the [open data portal](https://administraciodigital.gencat.cat/ca/dades/dades-obertes/inici/index.html#googtrans(ca|en)) 
 of Catalan Government (Generalitat de Catalunya), and includes hourly air quality metrics as well as 
 geospatial information of the capture points.
 
 The objective of this analysis is to find the biggest contributors to air pollution in Catalonia for the time period of the data. In order to get to this, both time evolution and geographic position will be taken into account.
 
-```{python}
-py_ver = !python --version
-print(f"Python version (virtual environment):{py_ver[0]}\n\n")
-
-!kedro -V
-```
-
 ## Project workflow
 
 The analysis is structured around a [kedro](https://docs.kedro.org/en/stable/introduction/index.html) 
-basic workflow, written in Python and uses the following packages:
+basic workflow, written in Python and uses the following tools / packages:
 
 - uv (package dependency manager)
 - quarto (report renderer)
@@ -34,26 +27,40 @@ basic workflow, written in Python and uses the following packages:
 - altair (data visualization)
 - geopandas (geospatial analysis)
 
+The diagram of the different processes applied to the data is shown below:
+
+- Data ingestion and type checking: reading the raw CSV file, converting to appropriate data types, saving "bronze" data to a parquet file.
+- Missing data handling: analyzing missing data and handling it properly (removing or imputing), saving "bronze" data to a parquet file.
+
 WIP --> to be updated as the analysis progresses.
+
+```{python}
+# Print basic information about the environment and tools used
+py_ver = !python --version
+print(f"Python version (virtual environment):{py_ver[0]}\n\n")
+
+!kedro -V
+```
 
 ## Data structure
 
 The raw data is a unique CSV file with the following columns and data types:
 
 ```{python}
-from kedro.io import DataCatalog
+# Load kedro catalog from YAML
+from kedro.io import KedroDataCatalog
 import pandas as pd
 import yaml
 
-# kedro catalog creation and loading
 with open("../conf/base/catalog.yml", "r") as f:
     conf_catalog = yaml.safe_load(f)
 
-catalog = DataCatalog.from_config(conf_catalog);
-df_raw = catalog.load("air_quality_log");
+catalog = KedroDataCatalog.from_config(conf_catalog)
 ```
 
 ```{python}
+# Load raw data from the catalog
+df_raw = catalog.load("air_quality_log")
 df_raw.info()
 ```
 
@@ -70,35 +77,53 @@ as every row of the file contains 24 data measurements (hourly average per each 
 Some rework will have to be done for easier anaylisis, pivoting the data in order to have
 one row for each time measurement per station and per parameter.
 
-```{python}
-print(f"Different air parameters or contaminants: {df_raw.loc[:,"CONTAMINANT"].nunique()}")
-df_raw.loc[:,"CONTAMINANT"].unique()
-```
-
 Data types seem apropiate to the content. Once pivoted, however, new data types will have to be added, 
 such as timestamp for the combined date + hour information. The geographic information, which is plain text
 or floats, will have to be converted for geospatial analysis. This will be done by converting the whole data 
 type from a pandas normal DataFrame to a geopandas GeoDataFrame (which will retain all of its previous columns plus a 'geometry' column).
 
-```{python}
-from datetime import datetime, timedelta
-import geopandas as gpd
+However, as the raw data contains 1.4M+ rows (and we will be expanding it even more), the first step will be to split the big dataframe into smaller chunks. Then each chunk will be processed separately and saved as a parquet file.
 
-# Pivot the dataframe to have one row per time measurement per parameter
-df_bronze = (
-    df_raw
-    .drop(columns=["Georeferència"])
-    .head(1000000)       # Limit to 1M rows for demonstration purposes, remove for full analysis
-    .melt(id_vars=["CODI EOI", "NOM ESTACIO", "DATA", "MAGNITUD", "CONTAMINANT", "UNITATS", "TIPUS ESTACIO", "AREA URBANA", 
-    "CODI INE", "MUNICIPI", "CODI COMARCA", "NOM COMARCA", "ALTITUD", "LATITUD", "LONGITUD"],
-    value_vars=["01h", "02h", "03h", "04h", "05h", "06h", "07h", "08h", "09h", "10h", "11h", "12h", "13h",
-    "14h", "15h", "16h", "17h", "18h", "19h", "20h", "21h", "22h", "23h", "24h"],
-    var_name="HORA", value_name="VALOR")
-)
+```{python}
+# Pivot the data and save as parquet
+
+def pivoting_raw_data(df_raw: pd.DataFrame) -> pd.DataFrame:
+    df_pivoted = (
+        df_raw
+        .drop(columns=["Georeferència"])
+        .melt(id_vars=["CODI EOI", "NOM ESTACIO", "DATA", "MAGNITUD", "CONTAMINANT", "UNITATS", "TIPUS ESTACIO", "AREA URBANA", 
+        "CODI INE", "MUNICIPI", "CODI COMARCA", "NOM COMARCA", "ALTITUD", "LATITUD", "LONGITUD"],
+        value_vars=["01h", "02h", "03h", "04h", "05h", "06h", "07h", "08h", "09h", "10h", "11h", "12h", "13h",
+        "14h", "15h", "16h", "17h", "18h", "19h", "20h", "21h", "22h", "23h", "24h"],
+        var_name="HORA", value_name="VALOR")
+    )
+    return df_pivoted
+
+print(f"Total number of rows: {df_raw.shape[0]}")
+max_rows_per_chunk = 350000
+
+index = 1
+for i in range(0, df_raw.shape[0], max_rows_per_chunk):
+    chunk = df_raw.iloc[i:i+max_rows_per_chunk,:]
+    pivoted_chunk = pivoting_raw_data(chunk)
+    #df_bronze = pd.concat([df_bronze, pivoted_chunk], ignore_index=True)
+    pivoted_chunk.to_parquet(f"../data/02_intermediate/air_quality_bronze_{index}.parquet", engine="pyarrow", partition_cols=["NOM COMARCA"])
+    index += 1
+
+del df_raw  
+```
+
+For simplicity, let's work with only one of the chunks. We will use the first chunk for this purpose (newest data).
+```{python}
+# Load the first chunk of data.
+df_bronze = pd.read_parquet("../data/02_intermediate/air_quality_bronze_1.parquet")
 ```
 
 ```{python}
 # Convert the date and time columns to a single timestamp column.
+from datetime import datetime, timedelta
+
+
 df_bronze.loc[:, "HORA"] = df_bronze.loc[:, "HORA"].str.replace("h", "").astype(int)-1
 
 df_bronze = df_bronze.assign(
@@ -110,10 +135,13 @@ df_bronze = df_bronze.assign(
     axis=1
 )
 ).drop(columns=["DATA", "HORA"])
+```
 
-del df_raw
 
+```{python}
 # Create a geodataframe with the geometry taken from the coordinates in "LATITUD" and "LONGITUD"
+import geopandas as gpd
+
 gdf_bronze = gpd.GeoDataFrame(
     df_bronze, geometry=gpd.points_from_xy(
         df_bronze.loc[:,"LATITUD"], df_bronze.loc[:,"LONGITUD"],crs="EPSG:4326"
@@ -121,7 +149,6 @@ gdf_bronze = gpd.GeoDataFrame(
 ).drop(columns=["LATITUD", "LONGITUD"])
 
 del df_bronze
-
 gdf_bronze.head()
 ```
 
@@ -130,9 +157,9 @@ gdf_bronze.head()
 Let's select a random station and air quality magnitude to plot it and see how it looks like.
 
 ```{python}
+# Select a random station and air quality magnitude
 import altair as alt
 
-# Select a random station and air quality magnitude
 station = gdf_bronze.loc[:,"NOM ESTACIO"].sample(1).values[0]
 magnitude = gdf_bronze.loc[:,"CONTAMINANT"].sample(1).values[0]
 
@@ -146,8 +173,8 @@ print(f"Random mangitude unit: {unit}")
 ```
 
 ```{python}
-# Plot the data of the latest 240 measurements
-alt.Chart(random_parameter.tail(240)).mark_line().encode(
+# Plot the data of the latest 2000 measurements
+alt.Chart(random_parameter.tail(2000)).mark_line().encode(
     x=alt.X("DATA_HORA:T", title="Date"),
     y=alt.Y("VALOR:Q", title=f"Air Quality Parameter {magnitude} [{unit}]"),
     tooltip=["DATA_HORA", "VALOR"]
