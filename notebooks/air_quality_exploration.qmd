@@ -154,27 +154,29 @@ gdf_bronze.head()
 
 ## Peek of the data
 
-Let's select a random station and air quality magnitude to plot it and see how it looks like.
+Let's select a close-by station and plot a few air quality parameters to see how they look like.
 
 ```{python}
-# Select a random station and air quality magnitude
+# Select a station and some air quality magnitudes
 import altair as alt
 
-station = gdf_bronze.loc[:,"NOM ESTACIO"].sample(1).values[0]
-magnitude = gdf_bronze.loc[:,"CONTAMINANT"].sample(1).values[0]
+station = "Barcelona (Eixample)"
+magnitudes = gdf_bronze.loc[gdf_bronze.loc[:,"NOM ESTACIO"] == station,"CONTAMINANT"].unique()
 
-random_parameter = gdf_bronze.query("`NOM ESTACIO` == @station & CONTAMINANT == @magnitude").loc[:,["DATA_HORA","VALOR", "UNITATS"]].sort_values(by="DATA_HORA")
+closeby_station = gdf_bronze.query("`NOM ESTACIO` == @station").loc[:,["DATA_HORA","VALOR", "CONTAMINANT", "UNITATS"]].sort_values(by="DATA_HORA")
 
 unit = random_parameter.loc[:,"UNITATS"].unique()[0]
 
-print(f"Random station: {station}")
-print(f"Random magnitude: {magnitude}")
-print(f"Random mangitude unit: {unit}")
+print(f"Chosen station: {station}")
+print(f"Available magnitudes: {magnitudes}")
 ```
 
 ```{python}
-# Plot the data of the latest 2000 measurements
-alt.Chart(random_parameter.tail(2000)).mark_line().encode(
+# Plot the data of the latest 200 measurements for a random parameter
+magnitude = closeby_station.loc[:,"CONTAMINANT"].sample(1).values[0]
+unit = closeby_station.query("`CONTAMINANT` == @magnitude").loc[:,"UNITATS"].values[0]
+
+alt.Chart(closeby_station.query("`CONTAMINANT` == @magnitude").tail(200)).mark_line().encode(
     x=alt.X("DATA_HORA:T", title="Date"),
     y=alt.Y("VALOR:Q", title=f"Air Quality Parameter {magnitude} [{unit}]"),
     tooltip=["DATA_HORA", "VALOR"]
