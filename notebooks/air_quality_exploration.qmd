@@ -2,7 +2,7 @@
 title: "Air quality report - data exploration"
 format: 
     html:
-        eval: false
+        # eval: false
         code-fold: true
         code-overflow: scroll
 ---
@@ -35,6 +35,8 @@ The diagram of the different processes applied to the data is shown below:
 WIP --> to be updated as the analysis progresses.
 
 ```{python}
+#| eval: false
+
 # Print basic information about the environment and tools used
 py_ver = !python --version
 print(f"Python version (virtual environment):{py_ver[0]}\n\n")
@@ -59,6 +61,8 @@ catalog = KedroDataCatalog.from_config(conf_catalog)
 ```
 
 ```{python}
+#| eval: false
+
 # Load raw data from the catalog
 df_raw = catalog.load("air_quality_log")
 df_raw.info()
@@ -85,6 +89,8 @@ type from a pandas normal DataFrame to a geopandas GeoDataFrame (which will reta
 However, as the raw data contains 1.4M+ rows (and we will be expanding it even more), the first step will be to split the big dataframe into smaller chunks. Then each chunk will be processed separately and saved as a parquet file.
 
 ```{python}
+#| eval: false
+
 # Pivot the data and save as parquet
 
 def pivoting_raw_data(df_raw: pd.DataFrame) -> pd.DataFrame:
@@ -106,51 +112,85 @@ index = 1
 for i in range(0, df_raw.shape[0], max_rows_per_chunk):
     chunk = df_raw.iloc[i:i+max_rows_per_chunk,:]
     pivoted_chunk = pivoting_raw_data(chunk)
-    #df_bronze = pd.concat([df_bronze, pivoted_chunk], ignore_index=True)
     pivoted_chunk.to_parquet(f"../data/02_intermediate/air_quality_bronze_{index}.parquet", engine="pyarrow", partition_cols=["NOM COMARCA"])
     index += 1
 
 del df_raw  
 ```
 
-For simplicity, let's work with only one of the chunks. We will use the first chunk for this purpose (newest data).
+For simplicity, let's work with only one of the chunks. We will use the first chunk for this purpose (newest data). Afterwards, all the steps applied to this chunk will be applied to the rest of them.
 ```{python}
+#| eval: false
+
 # Load the first chunk of data.
 df_bronze = pd.read_parquet("../data/02_intermediate/air_quality_bronze_1.parquet")
 ```
 
 ```{python}
+#| eval: false
+
 # Convert the date and time columns to a single timestamp column.
 from datetime import datetime, timedelta
 
+def transform_datetime(df_old: pd.DataFrame) -> pd.DataFrame:
 
-df_bronze.loc[:, "HORA"] = df_bronze.loc[:, "HORA"].str.replace("h", "").astype(int)-1
+    df_old.loc[:, "HORA"] = df_old.loc[:, "HORA"].str.replace("h", "").astype(int)-1
+    df_new = df_old.assign(
+        DATA_HORA=lambda s: s.apply(
+            lambda row: datetime.strptime(
+                row.loc["DATA"] + " " + str(row.loc["HORA"]) + ":00"
+            , "%d/%m/%Y %H:%M"
+            ) + timedelta(hours=1),
+        axis=1
+    )
+    ).drop(columns=["DATA", "HORA"])
+    return df_new
 
-df_bronze = df_bronze.assign(
-    DATA_HORA=lambda s: s.apply(
-        lambda row: datetime.strptime(
-            row.loc["DATA"] + " " + str(row.loc["HORA"]) + ":00"
-        , "%d/%m/%Y %H:%M"
-        ) + timedelta(hours=1),
-    axis=1
-)
-).drop(columns=["DATA", "HORA"])
+df_bronze = transform_datetime(df_bronze)
 ```
 
 
 ```{python}
+#| eval: false
+
 # Create a geodataframe with the geometry taken from the coordinates in "LATITUD" and "LONGITUD"
 import geopandas as gpd
+import shutil
 
-gdf_bronze = gpd.GeoDataFrame(
-    df_bronze, geometry=gpd.points_from_xy(
-        df_bronze.loc[:,"LATITUD"], df_bronze.loc[:,"LONGITUD"],crs="EPSG:4326"
-    )
-).drop(columns=["LATITUD", "LONGITUD"])
+def create_geodataframe(df_new: pd.DataFrame) -> gpd.GeoDataFrame:
 
-del df_bronze
+    gdf_new = gpd.GeoDataFrame(
+        df_new, geometry=gpd.points_from_xy(
+            df_new.loc[:,"LATITUD"], df_new.loc[:,"LONGITUD"],crs="EPSG:4326"
+        )
+    ).drop(columns=["LATITUD", "LONGITUD"])
+    return gdf_new
+
+gdf_bronze = create_geodataframe(df_bronze)
 gdf_bronze.head()
+
+shutil.rmtree("../data/02_intermediate/air_quality_bronze_1.parquet")
+gdf_bronze.to_parquet("../data/02_intermediate/air_quality_bronze_1.parquet", engine="pyarrow")
+del df_bronze
 ```
+
+Now that it seems that the data has the correct format, let's apply this functions to the whole dataset and override the previous bronze .parquet files.
+
+```{python}
+#| eval: false
+
+# Apply transformations to all the chunks and overwrite .parquet bronze files
+
+for i in range(2, index):
+    df_old = pd.read_parquet(f"../data/02_intermediate/air_quality_bronze_{i}.parquet")
+    df_new = transform_datetime(df_old)
+    gdf_new = create_geodataframe(df_new)
+    shutil.rmtree(f"../data/02_intermediate/air_quality_bronze_{i}.parquet")
+    gdf_new.to_parquet(f"../data/02_intermediate/air_quality_bronze_{i}.parquet", engine="pyarrow")
+
+del gdf_bronze
+```
+
 
 ## Peek of the data
 
@@ -158,14 +198,17 @@ Let's select a close-by station and plot a few air quality parameters to see how
 
 ```{python}
 # Select a station and some air quality magnitudes
+import geopandas as gpd
 import altair as alt
+
+gdf_bronze = gpd.read_parquet("../data/02_intermediate/air_quality_bronze_1.parquet")
 
 station = "Barcelona (Eixample)"
 magnitudes = gdf_bronze.loc[gdf_bronze.loc[:,"NOM ESTACIO"] == station,"CONTAMINANT"].unique()
 
 closeby_station = gdf_bronze.query("`NOM ESTACIO` == @station").loc[:,["DATA_HORA","VALOR", "CONTAMINANT", "UNITATS"]].sort_values(by="DATA_HORA")
 
-unit = random_parameter.loc[:,"UNITATS"].unique()[0]
+unit = closeby_station.loc[:,"UNITATS"].unique()[0]
 
 print(f"Chosen station: {station}")
 print(f"Available magnitudes: {magnitudes}")
