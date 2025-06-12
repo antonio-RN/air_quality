@@ -19,6 +19,7 @@ dependencies = [
  "geopandas>=1.0.1",
  "altair>=5.5.0",
  "pyarrow>=20.0.0",
+ "folium>=0.19.7",
 ]
 
 [project.scripts]
