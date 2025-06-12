@@ -61,8 +61,6 @@ catalog = KedroDataCatalog.from_config(conf_catalog)
 ```
 
 ```{python}
-#| eval: false
-
 # Load raw data from the catalog
 df_raw = catalog.load("air_quality_log")
 df_raw.info()
@@ -92,7 +90,6 @@ However, as the raw data contains 1.4M+ rows (and we will be expanding it even m
 #| eval: false
 
 # Pivot the data and save as parquet
-
 def pivoting_raw_data(df_raw: pd.DataFrame) -> pd.DataFrame:
     df_pivoted = (
         df_raw
@@ -118,7 +115,6 @@ for i in range(0, df_raw.shape[0], max_rows_per_chunk):
 del df_raw  
 ```
 
-For simplicity, let's work with only one of the chunks. We will use the first chunk for this purpose (newest data). Afterwards, all the steps applied to this chunk will be applied to the rest of them.
 ```{python}
 #| eval: false
 
@@ -167,12 +163,18 @@ def create_geodataframe(df_new: pd.DataFrame) -> gpd.GeoDataFrame:
     return gdf_new
 
 gdf_bronze = create_geodataframe(df_bronze)
-gdf_bronze.head()
-
 shutil.rmtree("../data/02_intermediate/air_quality_bronze_1.parquet")
 gdf_bronze.to_parquet("../data/02_intermediate/air_quality_bronze_1.parquet", engine="pyarrow")
 del df_bronze
 ```
+
+```{python}
+# Show first rows of the converted geodataframe
+import geopandas as gpd
+gdf_bronze = gpd.read_parquet("../data/02_intermediate/air_quality_bronze_1.parquet")
+gdf_bronze.head()
+```
+
 
 Now that it seems that the data has the correct format, let's apply this functions to the whole dataset and override the previous bronze .parquet files.
 
@@ -194,11 +196,10 @@ del gdf_bronze
 
 ## Peek of the data
 
-Let's select a close-by station and plot a few air quality parameters to see how they look like.
+Let's select a close-by station and plot the available air quality parameters to see how they look like.
 
 ```{python}
-# Select a station and some air quality magnitudes
-import geopandas as gpd
+# Select a station and show available air quality magnitudes
 import altair as alt
 
 gdf_bronze = gpd.read_parquet("../data/02_intermediate/air_quality_bronze_1.parquet")
@@ -208,21 +209,44 @@ magnitudes = gdf_bronze.loc[gdf_bronze.loc[:,"NOM ESTACIO"] == station,"CONTAMIN
 
 closeby_station = gdf_bronze.query("`NOM ESTACIO` == @station").loc[:,["DATA_HORA","VALOR", "CONTAMINANT", "UNITATS"]].sort_values(by="DATA_HORA")
 
-unit = closeby_station.loc[:,"UNITATS"].unique()[0]
-
 print(f"Chosen station: {station}")
 print(f"Available magnitudes: {magnitudes}")
 ```
 
 ```{python}
-# Plot the data of the latest 200 measurements for a random parameter
-magnitude = closeby_station.loc[:,"CONTAMINANT"].sample(1).values[0]
-unit = closeby_station.query("`CONTAMINANT` == @magnitude").loc[:,"UNITATS"].values[0]
+# Plot the data of the latest 200 measurements for all the available parameters
 
-alt.Chart(closeby_station.query("`CONTAMINANT` == @magnitude").tail(200)).mark_line().encode(
+chart = alt.vconcat()
+for i_index in range(0,len(magnitudes),2):
+    try:
+        pair_mags = magnitudes[i_index:i_index+2]
+    except:
+        pair_mags = magnitudes[i_index]
+    row = alt.hconcat()
+    for magnitude in pair_mags:
+        filtered_closeby = closeby_station.query("CONTAMINANT == @magnitude")
+        unit = filtered_closeby.loc[:,"UNITATS"].iloc[0]
+        row |= alt.Chart(data=filtered_closeby.tail(200)).mark_line().encode(
+            x=alt.X("DATA_HORA:T", title="Date"),
+            y=alt.Y("VALOR:Q", title=f"{magnitude} [{unit}]"),
+            tooltip=["DATA_HORA", "VALOR"]
+        )
+    chart &= row
+chart
+```
+
+It seems that there are only 8 parameters available for this location, some that share the same unit but ranging in a very different range.
+
+If we focus on one parameter and have a wider look at it:
+
+```{python}
+# Plot the data of a random parameter with a wider scope
+import random as random
+magnitude = random.sample(list(magnitudes), 1)
+print(f"Random air parameter = {magnitude}")
+alt.Chart(data=closeby_station.query("CONTAMINANT == @magnitude").tail(2000)).mark_line().encode(
     x=alt.X("DATA_HORA:T", title="Date"),
-    y=alt.Y("VALOR:Q", title=f"Air Quality Parameter {magnitude} [{unit}]"),
+    y=alt.Y("VALOR:Q", title=f"{magnitude}"),
     tooltip=["DATA_HORA", "VALOR"]
 )
 ```
-
