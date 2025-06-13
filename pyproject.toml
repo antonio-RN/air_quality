@@ -20,6 +20,9 @@ dependencies = [
  "altair>=5.5.0",
  "pyarrow>=20.0.0",
  "folium>=0.19.7",
+ "matplotlib>=3.10.3",
+ "mapclassify>=2.9.0",
+ "missingno>=0.5.2",
 ]
 
 [project.scripts]

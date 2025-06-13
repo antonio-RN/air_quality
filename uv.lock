@@ -23,6 +23,9 @@ dependencies = [
     { name = "kedro", extra = ["jupyter"] },
     { name = "kedro-datasets", extra = ["matplotlib-matplotlibwriter", "pandas-csvdataset", "pandas-exceldataset", "pandas-parquetdataset", "plotly-jsondataset", "plotly-plotlydataset"] },
     { name = "kedro-viz" },
+    { name = "mapclassify" },
+    { name = "matplotlib" },
+    { name = "missingno" },
     { name = "notebook" },
     { name = "pyarrow" },
     { name = "scikit-learn" },
@@ -47,6 +50,9 @@ requires-dist = [
     { name = "kedro", extras = ["jupyter"], specifier = "~=0.19.11" },
     { name = "kedro-datasets", extras = ["matplotlib-matplotlibwriter", "pandas-csvdataset", "pandas-exceldataset", "pandas-parquetdataset", "plotly-jsondataset", "plotly-plotlydataset"], specifier = ">=3.0" },
     { name = "kedro-viz", specifier = ">=6.7.0" },
+    { name = "mapclassify", specifier = ">=2.9.0" },
+    { name = "matplotlib", specifier = ">=3.10.3" },
+    { name = "missingno", specifier = ">=0.5.2" },
     { name = "notebook" },
     { name = "pyarrow", specifier = ">=20.0.0" },
     { name = "pytest", marker = "extra == 'dev'", specifier = "~=7.2" },
@@ -1277,6 +1283,22 @@ wheels = [
 ]
 
 [[package]]
+name = "mapclassify"
+version = "2.9.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "networkx" },
+    { name = "numpy" },
+    { name = "pandas" },
+    { name = "scikit-learn" },
+    { name = "scipy" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/af/40/f930dd57f640b957fa1067cf427d7a417eb3995e2d5d7b8f6def297d38bf/mapclassify-2.9.0.tar.gz", hash = "sha256:65fa7a7d778ed63496ff860b9f3c26d632d8f289820a6d8556ac527d14b26bd8", size = 5401963, upload-time = "2025-05-28T05:34:39.191Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/cd/fb/101891210f76158963a8bbf5a202d6c3173cc29a4dd75ca19e65ba4549dc/mapclassify-2.9.0-py3-none-any.whl", hash = "sha256:5c2902a6d83ff7a2cd4d8884238c9c111a32470b7a8bde2cf4f62fef8166a497", size = 286652, upload-time = "2025-05-28T05:34:37.85Z" },
+]
+
+[[package]]
 name = "markdown-it-py"
 version = "3.0.0"
 source = { registry = "https://pypi.org/simple" }
@@ -1366,6 +1388,21 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/d6/54/cfe61301667036ec958cb99bd3efefba235e65cdeb9c84d24a8293ba1d90/mdurl-0.1.2.tar.gz", hash = "sha256:bb413d29f5eea38f31dd4754dd7377d4465116fb207585f97bf925588687c1ba", size = 8729, upload-time = "2022-08-14T12:40:10.846Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/b3/38/89ba8ad64ae25be8de66a6d463314cf1eb366222074cfda9ee839c56a4b4/mdurl-0.1.2-py3-none-any.whl", hash = "sha256:84008a41e51615a49fc9966191ff91509e3c40b939176e643fd50a5c2196b8f8", size = 9979, upload-time = "2022-08-14T12:40:09.779Z" },
+]
+
+[[package]]
+name = "missingno"
+version = "0.5.2"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "matplotlib" },
+    { name = "numpy" },
+    { name = "scipy" },
+    { name = "seaborn" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/2b/f9/e20220b851bc6d7abf70b403a3080d6af946ed4b13b2bf91ef4e74d2aec9/missingno-0.5.2.tar.gz", hash = "sha256:4a4baa9ca9f9e4e0d9402455df26b656632e94b99e87fa64c0cdbbbc722837ac", size = 17489, upload-time = "2023-02-26T20:10:29.329Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/87/22/cd5cf999af21c2f97486622c551ac3d07361ced8125121e907f588ff5f24/missingno-0.5.2-py3-none-any.whl", hash = "sha256:55782621ce09ba0f0a1d08e5bd6d6fe1946469fb03951fadf7d209911ca5b072", size = 8704, upload-time = "2023-02-26T20:10:26.042Z" },
 ]
 
 [[package]]

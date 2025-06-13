@@ -32,7 +32,7 @@ The diagram of the different processes applied to the data is shown below:
 - Data ingestion and type checking: reading the raw CSV file, converting to appropriate data types, saving "bronze" data to a parquet file.
 - Missing data handling: analyzing missing data and handling it properly (removing or imputing), saving "bronze" data to a parquet file.
 
-WIP --> to be updated as the analysis progresses.
+**WIP --> to be updated as the analysis progresses.**
 
 ```{python}
 #| eval: false
@@ -109,7 +109,7 @@ index = 1
 for i in range(0, df_raw.shape[0], max_rows_per_chunk):
     chunk = df_raw.iloc[i:i+max_rows_per_chunk,:]
     pivoted_chunk = pivoting_raw_data(chunk)
-    pivoted_chunk.to_parquet(f"../data/02_intermediate/air_quality_bronze_{index}.parquet", engine="pyarrow", partition_cols=["NOM COMARCA"])
+    pivoted_chunk.to_parquet(f"../data/02_intermediate/air_quality_bronze_{index}.parquet", engine="pyarrow")
     index += 1
 
 del df_raw  
@@ -151,19 +151,18 @@ df_bronze = transform_datetime(df_bronze)
 
 # Create a geodataframe with the geometry taken from the coordinates in "LATITUD" and "LONGITUD"
 import geopandas as gpd
-import shutil
 
 def create_geodataframe(df_new: pd.DataFrame) -> gpd.GeoDataFrame:
 
     gdf_new = gpd.GeoDataFrame(
         df_new, geometry=gpd.points_from_xy(
-            df_new.loc[:,"LATITUD"], df_new.loc[:,"LONGITUD"],crs="EPSG:4326"
+            df_new.loc[:,"LONGITUD"], df_new.loc[:,"LATITUD"],crs="EPSG:4326"
         )
     ).drop(columns=["LATITUD", "LONGITUD"])
     return gdf_new
 
 gdf_bronze = create_geodataframe(df_bronze)
-shutil.rmtree("../data/02_intermediate/air_quality_bronze_1.parquet")
+os.remove("../data/02_intermediate/air_quality_bronze_1.parquet")
 gdf_bronze.to_parquet("../data/02_intermediate/air_quality_bronze_1.parquet", engine="pyarrow")
 del df_bronze
 ```
@@ -175,7 +174,7 @@ gdf_bronze = gpd.read_parquet("../data/02_intermediate/air_quality_bronze_1.parq
 gdf_bronze.head()
 ```
 
-
+**WIP - check missing data + incorrect values**
 
 Now that it seems that the data has the correct format, let's apply this functions to the whole dataset and override the previous bronze .parquet files.
 
@@ -188,7 +187,7 @@ for i in range(2, index):
     df_old = pd.read_parquet(f"../data/02_intermediate/air_quality_bronze_{i}.parquet")
     df_new = transform_datetime(df_old)
     gdf_new = create_geodataframe(df_new)
-    shutil.rmtree(f"../data/02_intermediate/air_quality_bronze_{i}.parquet")
+    os.remove(f"../data/02_intermediate/air_quality_bronze_{i}.parquet")
     gdf_new.to_parquet(f"../data/02_intermediate/air_quality_bronze_{i}.parquet", engine="pyarrow")
 
 del gdf_bronze
@@ -196,6 +195,16 @@ del gdf_bronze
 
 
 ## Position of the capture points
+
+Let's have a quick look at all the stations in the first data partition.
+
+```{python}
+## Plot all the stations
+import altair as alt
+gdf_bronze = gpd.read_parquet("../data/02_intermediate/air_quality_bronze_1.parquet")
+gdf_positions = gdf_bronze.drop_duplicates(subset=["CODI EOI"], keep="first")
+gdf_positions.explore(tiles="cartodb positron")
+```
 
 Let's plot the different capture stations in the Barcelonès "comarca" and overlap them to the actual map to check their situation.
 
@@ -207,8 +216,8 @@ gdf_barcelones_bronze = (
     )
 m = folium.Map(
     location=[
-        gdf_barcelones_bronze.loc[:,"geometry"].x.mean(),
-        gdf_barcelones_bronze.loc[:,"geometry"].y.mean()
+        gdf_barcelones_bronze.loc[:,"geometry"].y.mean(),
+        gdf_barcelones_bronze.loc[:,"geometry"].x.mean()
     ],
     tiles="cartodb positron",
     zoom_start=12
@@ -216,7 +225,7 @@ m = folium.Map(
 for i in range(gdf_barcelones_bronze.shape[0]):
     station = gdf_barcelones_bronze.iloc[i,:]
     folium.Marker(
-        location=[station.loc["geometry"].x,station.loc["geometry"].y],
+        location=[station.loc["geometry"].y,station.loc["geometry"].x],
         popup=station.loc["NOM ESTACIO"]
         ).add_to(m)     
 m
@@ -232,14 +241,14 @@ gdf_barcelones_bronze.loc[:,"AREA URBANA"].value_counts()
 
 If we pick another "comarca", like Baix Llobregat, and repeat the same process:
 ```{python}
-# Plot Anoia capture points on the map
+# Plot Baix Llobregat capture points on the map
 gdf_bll_bronze = (
     gdf_bronze.loc[gdf_bronze.loc[:,"NOM COMARCA"]=="Baix Llobregat",:].drop_duplicates(subset="CODI EOI", keep="first")
     )
 m2 = folium.Map(
     location=[
-        gdf_bll_bronze.loc[:,"geometry"].x.mean(),
-        gdf_bll_bronze.loc[:,"geometry"].y.mean()
+        gdf_bll_bronze.loc[:,"geometry"].y.mean(),
+        gdf_bll_bronze.loc[:,"geometry"].x.mean()
     ],
     tiles="cartodb positron",
     zoom_start=11
@@ -247,7 +256,7 @@ m2 = folium.Map(
 for i in range(gdf_bll_bronze.shape[0]):
     station = gdf_bll_bronze.iloc[i,:]
     folium.Marker(
-        location=[station.loc["geometry"].x,station.loc["geometry"].y],
+        location=[station.loc["geometry"].y,station.loc["geometry"].x],
         popup=station.loc["NOM ESTACIO"]
         ).add_to(m2)     
 m2
@@ -266,10 +275,6 @@ Let's select a close-by station and plot the available air quality parameters to
 
 ```{python}
 # Select a station and show available air quality magnitudes
-import altair as alt
-
-gdf_bronze = gpd.read_parquet("../data/02_intermediate/air_quality_bronze_1.parquet")
-
 station = "Barcelona (Eixample)"
 magnitudes = gdf_bronze.loc[gdf_bronze.loc[:,"NOM ESTACIO"] == station,"CONTAMINANT"].unique()
 
@@ -315,4 +320,15 @@ alt.Chart(data=closeby_station.query("CONTAMINANT == @magnitude").tail(2000)).ma
     y=alt.Y("VALOR:Q", title=f"{magnitude}"),
     tooltip=["DATA_HORA", "VALOR"]
 )
+```
+
+## Missing data handling
+
+If we have a quick check for missing data in the partition of the data that we are working with, we can see that there is some missing data for the main dimension ("VALOR").
+
+```{python}
+## Check missing data
+import missingno as msno
+
+msno.matrix(df: gdf_bronze)
 ```
