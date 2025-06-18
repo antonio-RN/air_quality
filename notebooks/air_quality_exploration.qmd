@@ -166,13 +166,20 @@ At this point it's importante to check data consistency and missing values, and 
 # Plot missing values matrix to identify broad patterns
 import missingno as msno
 df_bronze = pd.read_parquet("../data/02_intermediate/air_quality_df_1.parquet")
-msno.matrix(df_bronze.sample(5000),figsize=(8,3))
+msno.matrix(df_bronze); # global view
+msno.matrix(df_bronze.iloc[:300000]); # local view
 ```
 
 
 Only two different types of missing data is shown in the sample: one (more frequent) where the actual measurement ("VALOR") is missing, and another one where the measurement and most of the station info is missing.
 
 For the first one, knowing that only 6% of the info is missing and that the value missing it's the most important one for the anaylisis, we will drop these measurements from the dataset. This can be done as there is no apparent pattern in the lack of information (e.g. all the info missing in a defined period).
+
+```{python}
+# Plot missing values when removing station lack of info samples
+df_bronze_partial = df_bronze.dropna(subset="NOM ESTACIO")
+msno.matrix(df_bronze_partial);
+```
 
 For the second one, if there is a measurement value in "VALOR" we will try to fill the missing info based on the other rows of the dataset (the stations don't change over time).
 
@@ -181,7 +188,9 @@ For the second one, if there is a measurement value in "VALOR" we will try to fi
 
 # Drop missing measurements
 df_bronze.dropna(subset=["VALOR"], inplace=True);
-# df_bronze.loc[(df_bronze.loc[:,"NOM ESTACIO"].isna()),:]
+
+df_bronze_missing_eoi =  df_bronze.query("`NOM ESTACIO`.isna()").loc[:,"CODI EOI"].unique()
+df_missing_info = df_bronze.dropna(subset=["NOM ESTACIO"]).query("`CODI EOI` in (@df_bronze_missing_eoi)").groupby("CODI EOI").head(1)
 ```
 
 **WiP --> finish inputing missing values**
