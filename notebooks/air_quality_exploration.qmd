@@ -62,7 +62,7 @@ catalog = KedroDataCatalog.from_config(conf_catalog)
 
 ```{python}
 # Load raw data from the catalog
-df_raw = catalog.load("air_quality_log")
+df_raw = catalog.load("air_quality_log");
 df_raw.info()
 ```
 
@@ -84,7 +84,17 @@ such as timestamp for the combined date + hour information. The geographic infor
 or floats, will have to be converted for geospatial analysis. This will be done by converting the whole data 
 type from a pandas normal DataFrame to a geopandas GeoDataFrame (which will retain all of its previous columns plus a 'geometry' column).
 
-However, as the raw data contains 1.4M+ rows (and we will be expanding it even more), the first step will be to split the big dataframe into smaller chunks. Then each chunk will be processed separately and saved as a parquet file.
+However, as the raw data contains 3.4M+ rows (and we will be expanding it even more), the first step will be to split the big dataframe into smaller chunks. Then each chunk will be processed separately and saved as a parquet file.
+
+```{python}
+#| eval: false
+
+# Optional filter to speed up processes
+# Remove for complete analysis
+
+df_raw = df_raw.iloc[:150000]
+df_raw.info()
+```
 
 ```{python}
 #| eval: false
@@ -109,7 +119,7 @@ index = 1
 for i in range(0, df_raw.shape[0], max_rows_per_chunk):
     chunk = df_raw.iloc[i:i+max_rows_per_chunk,:]
     pivoted_chunk = pivoting_raw_data(chunk)
-    pivoted_chunk.to_parquet(f"../data/02_intermediate/air_quality_bronze_{index}.parquet", engine="pyarrow")
+    pivoted_chunk.to_parquet(f"../data/02_intermediate/air_quality_df_{index}.parquet", engine="pyarrow")
     index += 1
 
 del df_raw  
@@ -119,13 +129,14 @@ del df_raw
 #| eval: false
 
 # Load the first chunk of data.
-df_bronze = pd.read_parquet("../data/02_intermediate/air_quality_bronze_1.parquet")
+df_bronze = pd.read_parquet("../data/02_intermediate/air_quality_df_1.parquet")
 ```
 
 ```{python}
 #| eval: false
 
 # Convert the date and time columns to a single timestamp column.
+import os
 from datetime import datetime, timedelta
 
 def transform_datetime(df_old: pd.DataFrame) -> pd.DataFrame:
@@ -143,8 +154,42 @@ def transform_datetime(df_old: pd.DataFrame) -> pd.DataFrame:
     return df_new
 
 df_bronze = transform_datetime(df_bronze)
+os.remove("../data/02_intermediate/air_quality_df_1.parquet")
+df_bronze.to_parquet("../data/02_intermediate/air_quality_df_1.parquet")
 ```
 
+## Missing data and incorrect values
+
+At this point it's importante to check data consistency and missing values, and proceed accordingly depending on the situation.
+
+```{python}
+# Plot missing values matrix to identify broad patterns
+import missingno as msno
+df_bronze = pd.read_parquet("../data/02_intermediate/air_quality_df_1.parquet")
+msno.matrix(df_bronze.sample(5000),figsize=(8,3))
+```
+
+
+Only two different types of missing data is shown in the sample: one (more frequent) where the actual measurement ("VALOR") is missing, and another one where the measurement and most of the station info is missing.
+
+For the first one, knowing that only 6% of the info is missing and that the value missing it's the most important one for the anaylisis, we will drop these measurements from the dataset. This can be done as there is no apparent pattern in the lack of information (e.g. all the info missing in a defined period).
+
+For the second one, if there is a measurement value in "VALOR" we will try to fill the missing info based on the other rows of the dataset (the stations don't change over time).
+
+```{python}
+#| eval: false
+
+# Drop missing measurements
+df_bronze.dropna(subset=["VALOR"], inplace=True);
+# df_bronze.loc[(df_bronze.loc[:,"NOM ESTACIO"].isna()),:]
+```
+
+**WiP --> finish inputing missing values**
+```{python}
+#| eval: false
+
+# INPUT MISSING VALUES
+```
 
 ```{python}
 #| eval: false
@@ -162,7 +207,6 @@ def create_geodataframe(df_new: pd.DataFrame) -> gpd.GeoDataFrame:
     return gdf_new
 
 gdf_bronze = create_geodataframe(df_bronze)
-os.remove("../data/02_intermediate/air_quality_bronze_1.parquet")
 gdf_bronze.to_parquet("../data/02_intermediate/air_quality_bronze_1.parquet", engine="pyarrow")
 del df_bronze
 ```
@@ -174,8 +218,6 @@ gdf_bronze = gpd.read_parquet("../data/02_intermediate/air_quality_bronze_1.parq
 gdf_bronze.head()
 ```
 
-**WIP - check missing data + incorrect values**
-
 Now that it seems that the data has the correct format, let's apply this functions to the whole dataset and override the previous bronze .parquet files.
 
 ```{python}
@@ -184,10 +226,11 @@ Now that it seems that the data has the correct format, let's apply this functio
 # Apply transformations to all the chunks and overwrite .parquet bronze files
 
 for i in range(2, index):
-    df_old = pd.read_parquet(f"../data/02_intermediate/air_quality_bronze_{i}.parquet")
+    df_old = pd.read_parquet(f"../data/02_intermediate/air_quality_df_{i}.parquet")
     df_new = transform_datetime(df_old)
+    df_new.dropna(subset=["VALOR"], inplace=True)
+    # INPUT MISSING DATA
     gdf_new = create_geodataframe(df_new)
-    os.remove(f"../data/02_intermediate/air_quality_bronze_{i}.parquet")
     gdf_new.to_parquet(f"../data/02_intermediate/air_quality_bronze_{i}.parquet", engine="pyarrow")
 
 del gdf_bronze
@@ -199,7 +242,7 @@ del gdf_bronze
 Let's have a quick look at all the stations in the first data partition.
 
 ```{python}
-## Plot all the stations
+# Plot all the stations
 import altair as alt
 gdf_bronze = gpd.read_parquet("../data/02_intermediate/air_quality_bronze_1.parquet")
 gdf_positions = gdf_bronze.drop_duplicates(subset=["CODI EOI"], keep="first")
@@ -320,15 +363,4 @@ alt.Chart(data=closeby_station.query("CONTAMINANT == @magnitude").tail(2000)).ma
     y=alt.Y("VALOR:Q", title=f"{magnitude}"),
     tooltip=["DATA_HORA", "VALOR"]
 )
-```
-
-## Missing data handling
-
-If we have a quick check for missing data in the partition of the data that we are working with, we can see that there is some missing data for the main dimension ("VALOR").
-
-```{python}
-## Check missing data
-import missingno as msno
-
-msno.matrix(df: gdf_bronze)
 ```
