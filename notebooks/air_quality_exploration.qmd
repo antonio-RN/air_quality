@@ -18,7 +18,7 @@ The objective of this analysis is to find the biggest contributors to air pollut
 
 ## Project workflow
 
-The analysis is structured around a [kedro](https://docs.kedro.org/en/stable/introduction/index.html) 
+The analysis will be structured around a [kedro](https://docs.kedro.org/en/stable/introduction/index.html) 
 basic workflow, written in Python and uses the following tools / packages:
 
 - uv (package dependency manager)
@@ -29,8 +29,13 @@ basic workflow, written in Python and uses the following tools / packages:
 
 The diagram of the different processes applied to the data is shown below:
 
-- Data ingestion and type checking: reading the raw CSV file, converting to appropriate data types, saving "bronze" data to a parquet file.
-- Missing data handling: analyzing missing data and handling it properly (removing or imputing), saving "bronze" data to a parquet file.
+- [x] Data ingestion and type checking: reading the raw CSV file, converting to appropriate data types, saving data to a parquet file.
+- [x] Missing data handling: analyzing missing data and handling it properly (removing or imputing), saving "bronze" data to a parquet file.
+- General exploration: checking data overview to spot inconsistencies and get a general grasp of the data "shape".
+- [ ] Feature creation: adding new features or characteristics based on geographic knowledge or specific thematic knowledge (air pollution).
+- [ ] Time evolution: checking trends through time in the general dataset.
+- [ ] Geographic inequalities: checking differences between geographic points and their relationship to them.
+- [ ] Combined analysis: mixing time evolution and geographic inequialities to identify broader patterns.
 
 **WIP --> to be updated as the analysis progresses.**
 
@@ -41,7 +46,7 @@ The diagram of the different processes applied to the data is shown below:
 py_ver = !python --version
 print(f"Python version (virtual environment):{py_ver[0]}\n\n")
 
-!kedro -V
+!kedro info
 ```
 
 ## Data structure
@@ -113,7 +118,7 @@ def pivoting_raw_data(df_raw: pd.DataFrame) -> pd.DataFrame:
     return df_pivoted
 
 print(f"Total number of rows: {df_raw.shape[0]}")
-max_rows_per_chunk = 350000
+max_rows_per_chunk = 200000
 
 index = 1
 for i in range(0, df_raw.shape[0], max_rows_per_chunk):
@@ -160,7 +165,7 @@ df_bronze.to_parquet("../data/02_intermediate/air_quality_df_1.parquet")
 
 ## Missing data and incorrect values
 
-At this point it's importante to check data consistency and missing values, and proceed accordingly depending on the situation.
+At this point it's important to check data consistency and missing values, and proceed accordingly depending on the situation.
 
 ```{python}
 # Plot missing values matrix to identify broad patterns
@@ -171,38 +176,49 @@ msno.matrix(df_bronze.iloc[:300000]); # local view
 ```
 
 
-Only two different types of missing data is shown in the sample: one (more frequent) where the actual measurement ("VALOR") is missing, and another one where the measurement and most of the station info is missing.
+Only two different types of missing data is shown in the sample: one (more frequent) where the actual measurement ("VALOR") is missing, and another one where the measurement unit and most of the station info is missing.
 
-For the first one, knowing that only 6% of the info is missing and that the value missing it's the most important one for the anaylisis, we will drop these measurements from the dataset. This can be done as there is no apparent pattern in the lack of information (e.g. all the info missing in a defined period).
+For the first one, knowing that only ~6% of the info is missing and that it's the most important part for the anaylisis, we will drop these measurements from the dataset. This can be done as there is no apparent pattern in the lack of information (e.g. all the info missing in a defined period).
 
 ```{python}
 # Plot missing values when removing station lack of info samples
-df_bronze_partial = df_bronze.dropna(subset="NOM ESTACIO")
-msno.matrix(df_bronze_partial);
+msno.matrix(df_bronze.dropna(subset="NOM ESTACIO"));
 ```
 
-For the second one, if there is a measurement value in "VALOR" we will try to fill the missing info based on the other rows of the dataset (the stations don't change over time).
+For the second one, if there is a measurement value in "VALOR" we will try to fill the missing info based on the other rows of the dataset (the stations don't change over time, nor the "MAGNITUD" units).
+
+```{python}
+# Apply missing data plan
+def input_missing_data(df_missing: pd.DataFrame) -> pd.DataFrame:
+    df_missing = df_missing.dropna(subset=["VALOR"]).reset_index(drop=False); # drop missing measurements
+
+    df_missing_info = df_missing.query("`NOM ESTACIO`.isna()").loc[:, ["index", "CODI EOI", "MAGNITUD", "DATA_HORA"]]
+
+    df_missing_eoi_list =  df_missing.query("`NOM ESTACIO`.isna()").loc[:,"CODI EOI"].unique()
+    df_correct_info = df_missing.dropna(
+        subset=["NOM ESTACIO"]
+        ).query(
+            "`CODI EOI` in (@df_missing_eoi_list)"
+            ).drop(
+                columns=["index", "VALOR", "CODI INE", "CODI COMARCA", "NOM COMARCA", "DATA_HORA"]
+            ).groupby(["CODI EOI", "MAGNITUD"]).head(1) # create sample dataframe with correct data to input
+
+    df_merged = pd.merge(df_missing_info, df_correct_info, on=["CODI EOI", "MAGNITUD"], how="left", suffixes=["_x", ""]).drop(columns=["CODI EOI", "MAGNITUD", "DATA_HORA"]).set_index("index")
+
+    df_clean = df_merged.combine_first(df_missing) # merge both keeping the correct info if available
+
+    # WiP -> missing 2nd cleaning for "CODI EOI" missing
+    return df_clean.loc[:,['CODI EOI', 'NOM ESTACIO', 'CODI INE', 'MUNICIPI', 'CODI COMARCA', 'NOM COMARCA', 'TIPUS ESTACIO', 'AREA URBANA', 'LATITUD', 'LONGITUD', 'ALTITUD',   
+        'MAGNITUD', 'CONTAMINANT', 'UNITATS', 'DATA_HORA', 'VALOR']]
+df_bronze_clean = input_missing_data(df_bronze)
+del df_bronze
+df_bronze_clean.head()
+```
+
+And finally, let's convert the pandas DataFrame to a geopandas GeoDataFrame (with the geometry correctly encoded).
 
 ```{python}
 #| eval: false
-
-# Drop missing measurements
-df_bronze.dropna(subset=["VALOR"], inplace=True);
-
-df_bronze_missing_eoi =  df_bronze.query("`NOM ESTACIO`.isna()").loc[:,"CODI EOI"].unique()
-df_missing_info = df_bronze.dropna(subset=["NOM ESTACIO"]).query("`CODI EOI` in (@df_bronze_missing_eoi)").groupby("CODI EOI").head(1)
-```
-
-**WiP --> finish inputing missing values**
-```{python}
-#| eval: false
-
-# INPUT MISSING VALUES
-```
-
-```{python}
-#| eval: false
-
 # Create a geodataframe with the geometry taken from the coordinates in "LATITUD" and "LONGITUD"
 import geopandas as gpd
 
@@ -215,9 +231,9 @@ def create_geodataframe(df_new: pd.DataFrame) -> gpd.GeoDataFrame:
     ).drop(columns=["LATITUD", "LONGITUD"])
     return gdf_new
 
-gdf_bronze = create_geodataframe(df_bronze)
+gdf_bronze = create_geodataframe(df_bronze_clean)
 gdf_bronze.to_parquet("../data/02_intermediate/air_quality_bronze_1.parquet", engine="pyarrow")
-del df_bronze
+del df_bronze_clean
 ```
 
 ```{python}
@@ -237,12 +253,9 @@ Now that it seems that the data has the correct format, let's apply this functio
 for i in range(2, index):
     df_old = pd.read_parquet(f"../data/02_intermediate/air_quality_df_{i}.parquet")
     df_new = transform_datetime(df_old)
-    df_new.dropna(subset=["VALOR"], inplace=True)
-    # INPUT MISSING DATA
+    df_new = input_missing_data(df_new)
     gdf_new = create_geodataframe(df_new)
     gdf_new.to_parquet(f"../data/02_intermediate/air_quality_bronze_{i}.parquet", engine="pyarrow")
-
-del gdf_bronze
 ```
 
 
