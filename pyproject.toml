@@ -11,7 +11,6 @@ dependencies = [
  "ipython>=8.10",
  "jupyterlab>=3.0",
  "notebook",
- "kedro[jupyter]~=0.19.11",
  "kedro-datasets[matplotlib-matplotlibwriter,pandas-csvdataset,pandas-exceldataset,pandas-parquetdataset,plotly-jsondataset,plotly-plotlydataset]>=3.0",
  "kedro-viz>=6.7.0",
  "scikit-learn~=1.5.1",
@@ -23,6 +22,7 @@ dependencies = [
  "matplotlib>=3.10.3",
  "mapclassify>=2.9.0",
  "missingno>=0.5.2",
+ "kedro>=1.0.0",
 ]
 
 [project.scripts]
@@ -34,7 +34,7 @@ dev = [ "pytest-cov~=3.0", "pytest-mock>=1.7.1, <2.0", "pytest~=7.2", "ruff~=0.1
 [tool.kedro]
 package_name = "air_quality"
 project_name = "air_quality"
-kedro_init_version = "0.19.11"
+kedro_init_version = "1.0.0"
 tools = "['Linting', 'Testing', 'Custom Logging', 'Data Structure', 'Kedro Viz']"
 example_pipeline = "False"
 source_dir = "src"

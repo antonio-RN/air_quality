@@ -54,15 +54,8 @@ print(f"Python version (virtual environment):{py_ver[0]}\n\n")
 The raw data is a unique CSV file with the following columns and data types:
 
 ```{python}
-# Load kedro catalog from YAML
-from kedro.io import KedroDataCatalog
+%load_ext kedro.ipython
 import pandas as pd
-import yaml
-
-with open("../conf/base/catalog.yml", "r") as f:
-    conf_catalog = yaml.safe_load(f)
-
-catalog = KedroDataCatalog.from_config(conf_catalog)
 ```
 
 ```{python}
@@ -266,6 +259,7 @@ Let's have a quick look at all the stations in the first data partition.
 ```{python}
 # Plot all the stations
 import altair as alt
+import geopandas as gpd
 gdf_bronze = gpd.read_parquet("../data/02_intermediate/air_quality_bronze_1.parquet")
 gdf_positions = gdf_bronze.drop_duplicates(subset=["CODI EOI"], keep="first")
 gdf_positions.explore(tiles="cartodb positron")
