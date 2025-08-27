@@ -1,3 +1,21 @@
 air_quality_log:
   type: pandas.CSVDataset
   filepath: data/01_raw/airquality_raw_20250514.csv
+
+air_quality_transform:
+  type: pandas.ParquetDataset
+  filepath: data/02_intermediate/air_quality_df_1.parquet
+  load_args:
+    engine: pyarrow
+  save_args:
+    engine: pyarrow
+
+air_quality_bronze:
+  type: geopandas.GenericDataset
+  filepath: data/02_intermediate/air_quality_bronze.parquet
+  file_format: parquet
+  load_args:
+    engine: pyarrow
+  save_args:
+    engine: pyarrow
+
