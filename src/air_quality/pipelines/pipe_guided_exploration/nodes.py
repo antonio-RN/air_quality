@@ -50,9 +50,8 @@ def input_missing_data(df_pivoted_datetime: pd.DataFrame) -> pd.DataFrame:
             ).groupby(["CODI EOI", "MAGNITUD"]).head(1) # create sample dataframe with correct data to input
 
     df_merged = pd.merge(df_pivoted_datetime_info, df_correct_info, on=["CODI EOI", "MAGNITUD"], how="left", suffixes=["_x", ""]).drop(columns=["CODI EOI", "MAGNITUD", "DATA_HORA"]).set_index("index")
-    df_bronze = df_merged.combine_first(df_pivoted_datetime) # merge both keeping the correct info if available
+    df_bronze = df_pivoted_datetime.set_index("index").combine_first(df_merged) # merge both keeping the correct info if available
 
-    # WiP -> missing 2nd cleaning for "CODI EOI" missing
     return df_bronze.loc[:,['CODI EOI', 'NOM ESTACIO', 'CODI INE', 'MUNICIPI', 'CODI COMARCA', 'NOM COMARCA', 'TIPUS ESTACIO', 'AREA URBANA', 'LATITUD', 'LONGITUD', 'ALTITUD',   
         'MAGNITUD', 'CONTAMINANT', 'UNITATS', 'DATA_HORA', 'VALOR']]
 

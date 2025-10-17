@@ -196,11 +196,10 @@ def input_missing_data(df_missing: pd.DataFrame) -> pd.DataFrame:
                 columns=["index", "VALOR", "CODI INE", "CODI COMARCA", "NOM COMARCA", "DATA_HORA"]
             ).groupby(["CODI EOI", "MAGNITUD"]).head(1) # create sample dataframe with correct data to input
 
-    df_merged = pd.merge(df_missing_info, df_correct_info, on=["CODI EOI", "MAGNITUD"], how="left", suffixes=["_x", ""]).drop(columns=["CODI EOI", "MAGNITUD", "DATA_HORA"]).set_index("index")
+    df_merged = pd.merge(df_missing_info, df_correct_info, on=["CODI EOI", "MAGNITUD"], how="left", suffixes=["_x", ""]).drop(columns=["MAGNITUD", "DATA_HORA"]).set_index("index")
 
-    df_clean = df_merged.combine_first(df_missing) # merge both keeping the correct info if available
+    df_clean = df_missing.set_index("index").combine_first(df_merged) # merge both keeping the correct info if available
 
-    # WiP -> missing 2nd cleaning for "CODI EOI" missing
     return df_clean.loc[:,['CODI EOI', 'NOM ESTACIO', 'CODI INE', 'MUNICIPI', 'CODI COMARCA', 'NOM COMARCA', 'TIPUS ESTACIO', 'AREA URBANA', 'LATITUD', 'LONGITUD', 'ALTITUD',   
         'MAGNITUD', 'CONTAMINANT', 'UNITATS', 'DATA_HORA', 'VALOR']]
 df_bronze_clean = input_missing_data(df_bronze)
