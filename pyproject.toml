@@ -23,6 +23,7 @@ dependencies = [
  "mapclassify>=2.9.0",
  "missingno>=0.5.2",
  "kedro>=1.0.0",
+ "pyogrio",
 ]
 
 [project.scripts]

@@ -163,6 +163,7 @@ At this point it's important to check data consistency and missing values, and p
 ```{python}
 # Plot missing values matrix to identify broad patterns
 import missingno as msno
+import pandas as pd
 df_bronze = pd.read_parquet("../data/02_intermediate/air_quality_df_1.parquet")
 msno.matrix(df_bronze); # global view
 msno.matrix(df_bronze.iloc[:300000]); # local view
@@ -184,6 +185,7 @@ For the second one, if there is a measurement value in "VALOR" we will try to fi
 # Apply missing data plan
 def input_missing_data(df_missing: pd.DataFrame) -> pd.DataFrame:
     df_missing = df_missing.dropna(subset=["VALOR"]).reset_index(drop=False); # drop missing measurements
+    df_missing.replace({"ALTITUD": {0: pd.NA}, "LATITUD": {0: pd.NA}, "LONGITUD": {0: pd.NA}}, inplace=True) # clear wrong geopositional data (0 -> NaN)
 
     df_missing_info = df_missing.query("`NOM ESTACIO`.isna()").loc[:, ["index", "CODI EOI", "MAGNITUD", "DATA_HORA"]]
 
