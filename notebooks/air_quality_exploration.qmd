@@ -31,7 +31,7 @@ The diagram of the different processes applied to the data is shown below:
 
 - [x] Data ingestion and type checking: reading the raw CSV file, converting to appropriate data types, saving data to a parquet file.
 - [x] Missing data handling: analyzing missing data and handling it properly (removing or imputing), saving "bronze" data to a parquet file.
-- General exploration: checking data overview to spot inconsistencies and get a general grasp of the data "shape".
+- [ ] General exploration: checking data overview to spot inconsistencies and get a general grasp of the data "shape".
 - [ ] Feature creation: adding new features or characteristics based on geographic knowledge or specific thematic knowledge (air pollution).
 - [ ] Time evolution: checking trends through time in the general dataset.
 - [ ] Geographic inequalities: checking differences between geographic points and their relationship to them.
@@ -250,6 +250,7 @@ for i in range(2, index):
     df_new = input_missing_data(df_new)
     gdf_new = create_geodataframe(df_new)
     gdf_new.to_parquet(f"../data/02_intermediate/air_quality_bronze_{i}.parquet", engine="pyarrow")
+    os.remove(f"../data/02_intermediate/air_quality_df_{i}.parquet")
 ```
 
 
@@ -261,6 +262,7 @@ Let's have a quick look at all the stations in the first data partition.
 # Plot all the stations
 import altair as alt
 import geopandas as gpd
+alt.data_transformers.enable("vegafusion")
 gdf_bronze = gpd.read_parquet("../data/02_intermediate/air_quality_bronze_1.parquet")
 gdf_positions = gdf_bronze.drop_duplicates(subset=["CODI EOI"], keep="first")
 gdf_positions.explore(tiles="cartodb positron")
@@ -272,7 +274,7 @@ Let's plot the different capture stations in the Barcelonès "comarca" and overl
 # Plot Barcelonès capture points on the map
 import folium
 gdf_barcelones_bronze = (
-    gdf_bronze.loc[gdf_bronze.loc[:,"NOM COMARCA"]=="Barcelonès",:].drop_duplicates(subset="CODI EOI", keep="first")
+    gdf_positions.loc[gdf_positions.loc[:,"NOM COMARCA"]=="Barcelonès",:]
     )
 m = folium.Map(
     location=[
@@ -303,7 +305,7 @@ If we pick another "comarca", like Baix Llobregat, and repeat the same process:
 ```{python}
 # Plot Baix Llobregat capture points on the map
 gdf_bll_bronze = (
-    gdf_bronze.loc[gdf_bronze.loc[:,"NOM COMARCA"]=="Baix Llobregat",:].drop_duplicates(subset="CODI EOI", keep="first")
+    gdf_positions.loc[gdf_positions.loc[:,"NOM COMARCA"]=="Baix Llobregat",:]
     )
 m2 = folium.Map(
     location=[
@@ -366,18 +368,32 @@ for i_index in range(0,len(magnitudes),2):
 chart
 ```
 
-It seems that there are only 8 parameters available for this location, some that share the same unit but ranging in a very different range.
+It seems that there are only 8 parameters available for this location, some that share the same unit but ranging in a very different spectrum. It's important to note that different magnitud orders (e.g. "ug/m3" and "mg/m3") could cause some trouble for the learning models, giving much more weight to the bigger magnitude in the prediction: this will have to be taken care in the future.
 
 If we focus on one parameter and have a wider look at it, we can see that there is too much datapoints to have a clear image of any pattern / trend, so we must reduce the frequency of data.
 
 ```{python}
 # Plot the data of a random parameter with a wider scope
 import random as random
-magnitude = random.sample(list(magnitudes), 1)
+magnitude = random.sample(list(magnitudes), 1)[0]
 print(f"Random air parameter = {magnitude}")
-alt.Chart(data=closeby_station.query("CONTAMINANT == @magnitude").tail(2000)).mark_line().encode(
+filtered_closeby = closeby_station.query("CONTAMINANT == @magnitude")
+unit = filtered_closeby.loc[:,"UNITATS"].iloc[0]
+
+base = alt.Chart(data=filtered_closeby.tail(10000)).mark_line()
+row1 = base.encode(
     x=alt.X("DATA_HORA:T", title="Date"),
-    y=alt.Y("VALOR:Q", title=f"{magnitude}"),
-    tooltip=["DATA_HORA", "VALOR"]
-)
+    y=alt.Y("VALOR:Q", title=f"{magnitude} [{unit}]"),
+).properties(title="Raw data (unfiltered)")
+
+row2 = base.encode(
+    x=alt.X("week(DATA_HORA):T", title="Date (weeks)"),
+    y=alt.Y("mean(VALOR):Q", title=f"{magnitude} [{unit}]")
+).properties(title="Aggregated data (weekly)")
+
+alt.hconcat(
+    row1,
+    row2
+).resolve_scale(y="shared")
 ```
+

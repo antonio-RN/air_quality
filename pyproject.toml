@@ -24,6 +24,9 @@ dependencies = [
  "missingno>=0.5.2",
  "kedro>=1.0.0",
  "pyogrio",
+ "vegafusion[embed]>=2.0.3",
+ "vegafusion-python-embed>=1.6.9",
+ "vl-convert-python>=1.8.0",
 ]
 
 [project.scripts]

@@ -39,6 +39,7 @@ def transform_datetime(df_pivoted: pd.DataFrame) -> pd.DataFrame:
 
 def input_missing_data(df_pivoted_datetime: pd.DataFrame) -> pd.DataFrame:
     df_pivoted_datetime = df_pivoted_datetime.dropna(subset=["VALOR"]).reset_index(drop=False); # drop missing measurements
+    df_pivoted_datetime.replace({"ALTITUD": {0: pd.NA}, "LATITUD": {0: pd.NA}, "LONGITUD": {0: pd.NA}}, inplace=True) # clear wrong geopositional data (0 -> NaN)
     df_pivoted_datetime_info = df_pivoted_datetime.query("`NOM ESTACIO`.isna()").loc[:, ["index", "CODI EOI", "MAGNITUD", "DATA_HORA"]]
     df_missing_eoi_list =  df_pivoted_datetime.query("`NOM ESTACIO`.isna()").loc[:,"CODI EOI"].unique()
     df_correct_info = df_pivoted_datetime.dropna(
