@@ -27,6 +27,7 @@ dependencies = [
  "vegafusion[embed]>=2.0.3",
  "vegafusion-python-embed>=1.6.9",
  "vl-convert-python>=1.8.0",
+ "numpy>=2.3.4",
 ]
 
 [project.scripts]

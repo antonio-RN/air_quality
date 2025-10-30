@@ -26,6 +26,7 @@ basic workflow, written in Python and uses the following tools / packages:
 - pandas (data wrangling)
 - altair (data visualization)
 - geopandas (geospatial analysis)
+- darts (time series analysis)
 
 The diagram of the different processes applied to the data is shown below:
 
