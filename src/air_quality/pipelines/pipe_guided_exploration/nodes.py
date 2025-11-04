@@ -39,8 +39,13 @@ def transform_datetime(df_pivoted: pd.DataFrame) -> pd.DataFrame:
 
 def input_missing_data(df_pivoted_datetime: pd.DataFrame) -> pd.DataFrame:
     df_pivoted_datetime = df_pivoted_datetime.dropna(subset=["VALOR"]).reset_index(drop=False); # drop missing measurements
-    df_pivoted_datetime.replace({"ALTITUD": {0: pd.NA}, "LATITUD": {0: pd.NA}, "LONGITUD": {0: pd.NA}}, inplace=True) # clear wrong geopositional data (0 -> NaN)
-    df_pivoted_datetime_info = df_pivoted_datetime.query("`NOM ESTACIO`.isna()").loc[:, ["index", "CODI EOI", "MAGNITUD", "DATA_HORA"]]
+    df_pivoted_datetime.replace(
+        {"ALTITUD": {0: pd.NA}, "LATITUD": {0: pd.NA}, "LONGITUD": {0: pd.NA}}, 
+        inplace=True
+        ) # clear wrong geopositional data (0 -> NaN)
+    df_pivoted_datetime_info = df_pivoted_datetime.query(
+        "`NOM ESTACIO`.isna()"
+        ).loc[:, ["index", "CODI EOI", "MAGNITUD", "DATA_HORA"]]
     df_missing_eoi_list =  df_pivoted_datetime.query("`NOM ESTACIO`.isna()").loc[:,"CODI EOI"].unique()
     df_correct_info = df_pivoted_datetime.dropna(
         subset=["NOM ESTACIO"]
@@ -50,11 +55,16 @@ def input_missing_data(df_pivoted_datetime: pd.DataFrame) -> pd.DataFrame:
                 columns=["index", "VALOR", "CODI INE", "CODI COMARCA", "NOM COMARCA", "DATA_HORA"]
             ).groupby(["CODI EOI", "MAGNITUD"]).head(1) # create sample dataframe with correct data to input
 
-    df_merged = pd.merge(df_pivoted_datetime_info, df_correct_info, on=["CODI EOI", "MAGNITUD"], how="left", suffixes=["_x", ""]).drop(columns=["CODI EOI", "MAGNITUD", "DATA_HORA"]).set_index("index")
+    df_merged = pd.merge(
+        df_pivoted_datetime_info, df_correct_info, on=["CODI EOI", "MAGNITUD"], 
+        how="left", suffixes=["_x", ""]
+        ).drop(columns=["CODI EOI", "MAGNITUD", "DATA_HORA"]).set_index("index")
     df_bronze = df_pivoted_datetime.set_index("index").combine_first(df_merged) # merge both keeping the correct info if available
 
-    return df_bronze.loc[:,['CODI EOI', 'NOM ESTACIO', 'CODI INE', 'MUNICIPI', 'CODI COMARCA', 'NOM COMARCA', 'TIPUS ESTACIO', 'AREA URBANA', 'LATITUD', 'LONGITUD', 'ALTITUD',   
-        'MAGNITUD', 'CONTAMINANT', 'UNITATS', 'DATA_HORA', 'VALOR']]
+    return df_bronze.loc[:,['CODI EOI', 'NOM ESTACIO', 'CODI INE', 'MUNICIPI', 
+                            'CODI COMARCA', 'NOM COMARCA', 'TIPUS ESTACIO', 'AREA URBANA', 
+                            'LATITUD', 'LONGITUD', 'ALTITUD', 'MAGNITUD', 'CONTAMINANT', 
+                            'UNITATS', 'DATA_HORA', 'VALOR']]
 
 def create_geodataframe(df_bronze: pd.DataFrame) -> gpd.GeoDataFrame:
 

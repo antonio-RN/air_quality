@@ -15,7 +15,7 @@ def create_pipeline(**kwargs) -> Pipeline:
         ),
         Node(
             func=pivoting_raw_data,
-            inputs="air_quality_log_r",
+            inputs="air_quality_log_r",   # change to "air_quality_log_r" if the first node is not commented out
             outputs="air_quality_transform"
         ),
         Node(

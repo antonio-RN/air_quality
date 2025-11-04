@@ -55,8 +55,29 @@ print(f"Python version (virtual environment):{py_ver[0]}\n\n")
 The raw data is a unique CSV file with the following columns and data types:
 
 ```{python}
+# Import libraries and read parameters
 %load_ext kedro.ipython
+
+import random as random
+import os
+import glob
+from pathlib import Path
+from datetime import datetime, timedelta
+
 import pandas as pd
+import geopandas as gpd
+import missingno as msno
+import altair as alt
+import folium
+
+# Parameters
+max_raw_rows = 150000
+max_rows_chunk = 200000
+
+cwd = Path.cwd()
+data_raw = cwd.parent.joinpath("data/01_raw")
+data_intermediate = cwd.parent.joinpath("data/02_intermediate")
+data_primary = cwd.parent.joinpath("data/03_primary")
 ```
 
 ```{python}
@@ -91,7 +112,7 @@ However, as the raw data contains 3.4M+ rows (and we will be expanding it even m
 # Optional filter to speed up processes
 # Remove for complete analysis
 
-df_raw = df_raw.iloc[:150000]
+df_raw = df_raw.iloc[:max_raw_rows]
 df_raw.info()
 ```
 
@@ -112,34 +133,29 @@ def pivoting_raw_data(df_raw: pd.DataFrame) -> pd.DataFrame:
     return df_pivoted
 
 print(f"Total number of rows: {df_raw.shape[0]}")
-max_rows_per_chunk = 200000
 
 index = 1
-for i in range(0, df_raw.shape[0], max_rows_per_chunk):
-    chunk = df_raw.iloc[i:i+max_rows_per_chunk,:]
+for i in range(0, df_raw.shape[0], max_rows_chunk):
+    chunk = df_raw.iloc[i:i+max_rows_chunk,:]
     pivoted_chunk = pivoting_raw_data(chunk)
-    pivoted_chunk.to_parquet(f"../data/02_intermediate/air_quality_df_{index}.parquet", engine="pyarrow")
+    pivoted_chunk.to_parquet(data_intermediate.joinpath(f"air_quality_df_{index}.parquet"), engine="pyarrow")
     index += 1
 
-del df_raw  
+del df_raw, pivoted_chunk, chunk, i, index
 ```
 
 ```{python}
 #| eval: false
 
 # Load the first chunk of data.
-df_bronze = pd.read_parquet("../data/02_intermediate/air_quality_df_1.parquet")
+df_bronze = pd.read_parquet(data_intermediate.joinpath("air_quality_df_1.parquet"))
 ```
 
 ```{python}
 #| eval: false
 
 # Convert the date and time columns to a single timestamp column.
-import os
-from datetime import datetime, timedelta
-
 def transform_datetime(df_old: pd.DataFrame) -> pd.DataFrame:
-
     df_old.loc[:, "HORA"] = df_old.loc[:, "HORA"].str.replace("h", "").astype(int)-1
     df_new = df_old.assign(
         DATA_HORA=lambda s: s.apply(
@@ -148,13 +164,14 @@ def transform_datetime(df_old: pd.DataFrame) -> pd.DataFrame:
             , "%d/%m/%Y %H:%M"
             ) + timedelta(hours=1),
         axis=1
-    )
+        )
     ).drop(columns=["DATA", "HORA"])
     return df_new
 
 df_bronze = transform_datetime(df_bronze)
-os.remove("../data/02_intermediate/air_quality_df_1.parquet")
-df_bronze.to_parquet("../data/02_intermediate/air_quality_df_1.parquet")
+os.remove(data_intermediate.joinpath("air_quality_df_1.parquet"))
+df_bronze.to_parquet(data_intermediate.joinpath("air_quality_df_1.parquet"))
+del df_bronze
 ```
 
 ## Missing data and incorrect values
@@ -163,9 +180,7 @@ At this point it's important to check data consistency and missing values, and p
 
 ```{python}
 # Plot missing values matrix to identify broad patterns
-import missingno as msno
-import pandas as pd
-df_bronze = pd.read_parquet("../data/02_intermediate/air_quality_df_1.parquet")
+df_bronze = pd.read_parquet(data_intermediate.joinpath("air_quality_df_1.parquet"))
 msno.matrix(df_bronze); # global view
 msno.matrix(df_bronze.iloc[:300000]); # local view
 ```
@@ -215,8 +230,6 @@ And finally, let's convert the pandas DataFrame to a geopandas GeoDataFrame (wit
 ```{python}
 #| eval: false
 # Create a geodataframe with the geometry taken from the coordinates in "LATITUD" and "LONGITUD"
-import geopandas as gpd
-
 def create_geodataframe(df_new: pd.DataFrame) -> gpd.GeoDataFrame:
 
     gdf_new = gpd.GeoDataFrame(
@@ -227,14 +240,13 @@ def create_geodataframe(df_new: pd.DataFrame) -> gpd.GeoDataFrame:
     return gdf_new
 
 gdf_bronze = create_geodataframe(df_bronze_clean)
-gdf_bronze.to_parquet("../data/02_intermediate/air_quality_bronze_1.parquet", engine="pyarrow")
-del df_bronze_clean
+gdf_bronze.to_parquet(data_primary.joinpath("air_quality_bronze_1.parquet"), engine="pyarrow")
+del df_bronze_clean, gdf_bronze
 ```
 
 ```{python}
 # Show first rows of the converted geodataframe
-import geopandas as gpd
-gdf_bronze = gpd.read_parquet("../data/02_intermediate/air_quality_bronze_1.parquet")
+gdf_bronze = gpd.read_parquet(data_primary.joinpath("air_quality_bronze_1.parquet"))
 gdf_bronze.head()
 ```
 
@@ -243,15 +255,16 @@ Now that it seems that the data has the correct format, let's apply this functio
 ```{python}
 #| eval: false
 
-# Apply transformations to all the chunks and overwrite .parquet bronze files
-
+# Apply transformations to the rest of the chunks and create .parquet bronze files
+index = len(glob.glob("*", root_dir=data_intermediate))+1
 for i in range(2, index):
-    df_old = pd.read_parquet(f"../data/02_intermediate/air_quality_df_{i}.parquet")
+    df_old = pd.read_parquet(data_intermediate.joinpath(f"air_quality_df_{i}.parquet"))
     df_new = transform_datetime(df_old)
     df_new = input_missing_data(df_new)
     gdf_new = create_geodataframe(df_new)
-    gdf_new.to_parquet(f"../data/02_intermediate/air_quality_bronze_{i}.parquet", engine="pyarrow")
-    os.remove(f"../data/02_intermediate/air_quality_df_{i}.parquet")
+    gdf_new.to_parquet(data_primary.joinpath(f"air_quality_bronze_{i}.parquet"), engine="pyarrow")
+    os.remove(data_intermediate.joinpath(f"air_quality_df_{i}.parquet"))
+    del df_old, df_new, gdf_new
 ```
 
 
@@ -261,8 +274,6 @@ Let's have a quick look at all the stations in the first data partition.
 
 ```{python}
 # Plot all the stations
-import altair as alt
-import geopandas as gpd
 alt.data_transformers.enable("vegafusion")
 gdf_bronze = gpd.read_parquet("../data/02_intermediate/air_quality_bronze_1.parquet")
 gdf_positions = gdf_bronze.drop_duplicates(subset=["CODI EOI"], keep="first")
@@ -273,7 +284,6 @@ Let's plot the different capture stations in the Barcelonès "comarca" and overl
 
 ```{python}
 # Plot Barcelonès capture points on the map
-import folium
 gdf_barcelones_bronze = (
     gdf_positions.loc[gdf_positions.loc[:,"NOM COMARCA"]=="Barcelonès",:]
     )
@@ -339,57 +349,58 @@ Let's select a close-by station and plot the available air quality parameters to
 ```{python}
 # Select a station and show available air quality magnitudes
 station = "Barcelona (Eixample)"
-magnitudes = gdf_bronze.loc[gdf_bronze.loc[:,"NOM ESTACIO"] == station,"CONTAMINANT"].unique()
 
 closeby_station = gdf_bronze.query("`NOM ESTACIO` == @station").loc[:,["DATA_HORA","VALOR", "CONTAMINANT", "UNITATS"]].sort_values(by="DATA_HORA")
+contaminants = closeby_station.loc[:,"CONTAMINANT"].unique()
 
 print(f"Chosen station: {station}")
-print(f"Available magnitudes: {magnitudes}")
+print(f"Available magnitudes: {contaminants}")
 ```
 
 ```{python}
 # Plot the data of the latest 200 measurements for all the available parameters
 
-chart = alt.vconcat()
-for i_index in range(0,len(magnitudes),2):
+chart = alt.vconcat().properties(
+    title=f"Measured contaminants in {station}"
+    )
+for i_index in range(0,len(contaminants),2):
     try:
-        pair_mags = magnitudes[i_index:i_index+2]
+        pair_conts = contaminants[i_index:i_index+2]
     except:
-        pair_mags = magnitudes[i_index]
+        pair_conts = contaminants[i_index]
     row = alt.hconcat()
-    for magnitude in pair_mags:
-        filtered_closeby = closeby_station.query("CONTAMINANT == @magnitude")
+    for single_contaminant in pair_conts:
+        filtered_closeby = closeby_station.query("CONTAMINANT == @single_contaminant")
         unit = filtered_closeby.loc[:,"UNITATS"].iloc[0]
         row |= alt.Chart(data=filtered_closeby.tail(200)).mark_line().encode(
             x=alt.X("DATA_HORA:T", title="Date"),
-            y=alt.Y("VALOR:Q", title=f"{magnitude} [{unit}]"),
+            y=alt.Y("VALOR:Q", title=f"{single_contaminant} [{unit}]"),
             tooltip=["DATA_HORA", "VALOR"]
         )
     chart &= row
 chart
 ```
 
-It seems that there are only 8 parameters available for this location, some that share the same unit but ranging in a very different spectrum. It's important to note that different magnitud orders (e.g. "ug/m3" and "mg/m3") could cause some trouble for the learning models, giving much more weight to the bigger magnitude in the prediction: this will have to be taken care in the future.
+It seems that there are only 7 parameters available for this location, some that share the same unit but ranging in a very different spectrum. It's important to note that different magnitud orders (e.g. "ug/m3" and "mg/m3") could cause some trouble for the learning models, giving much more weight to the bigger magnitude in the prediction: this will have to be taken care in the future.
 
-If we focus on one parameter and have a wider look at it, we can see that there is too much datapoints to have a clear image of any pattern / trend, so we must reduce the frequency of data.
+If we focus on one parameter and have a wider look at it, we can see that there is too much datapoints to have a clear image of any pattern / trend, so we must reduce the frequency of data (by aggregation).
 
 ```{python}
 # Plot the data of a random parameter with a wider scope
-import random as random
-magnitude = random.sample(list(magnitudes), 1)[0]
-print(f"Random air parameter = {magnitude}")
-filtered_closeby = closeby_station.query("CONTAMINANT == @magnitude")
+single_contaminant = random.sample(list(contaminants), 1)[0]
+print(f"Random air parameter = {single_contaminant}")
+filtered_closeby = closeby_station.query("CONTAMINANT == @single_contaminant")
 unit = filtered_closeby.loc[:,"UNITATS"].iloc[0]
 
 base = alt.Chart(data=filtered_closeby.tail(10000)).mark_line()
 row1 = base.encode(
     x=alt.X("DATA_HORA:T", title="Date"),
-    y=alt.Y("VALOR:Q", title=f"{magnitude} [{unit}]"),
+    y=alt.Y("VALOR:Q", title=f"{single_contaminant} [{unit}]"),
 ).properties(title="Raw data (unfiltered)")
 
 row2 = base.encode(
     x=alt.X("week(DATA_HORA):T", title="Date (weeks)"),
-    y=alt.Y("mean(VALOR):Q", title=f"{magnitude} [{unit}]")
+    y=alt.Y("mean(VALOR):Q", title=f"{single_contaminant} [{unit}]")
 ).properties(title="Aggregated data (weekly)")
 
 alt.hconcat(
@@ -398,3 +409,37 @@ alt.hconcat(
 ).resolve_scale(y="shared")
 ```
 
+```{python}
+# ts_closeby = filtered_closeby.filter(["DATA_HORA", "VALOR"]).set_index(pd.to_datetime(filtered_closeby.loc[:,"DATA_HORA"]))
+# ts_closeby_resampled7D = ts_closeby.resample("7D").agg(
+#     average=("VALOR", "mean"),
+#     minimum=("VALOR", "min"),
+#     maximum=("VALOR", "max"),
+#     stdev=("VALOR", "std")
+# )
+
+# base = alt.Chart(data=ts_closeby).encode(
+#     x=alt.X("week(DATA_HORA):T")
+# )
+# chart_q1 = base.mark_line(color="blue", opacity=0.25).encode(
+#     y=alt.Y("q1(VALOR):Q")
+# )
+# char_mean = base.mark_line().encode(
+#     y=alt.Y("mean(VALOR):Q"),
+#     tooltip="mean(VALOR)"
+# )
+# chart_q3 = base.mark_line(color="red", opacity=0.25).encode(
+#     y=alt.Y("q3(VALOR):Q")
+# )
+# chart = chart_q1 + chart_q3 + char_mean
+# chart
+```
+
+```{python}
+for parquet_file in glob.glob("air_quality_bronze_*.parquet", root_dir="../data/02_intermediate"):
+    temp_gdf = gpd.read_parquet("../data/02_intermediate/"+parquet_file)
+    temp_filtered = temp_gdf.query(
+        "`NOM ESTACIO` == @station and CONTAMINANT == @single_contaminant"
+        ).filter(["DATA_HORA", "VALOR"])
+    temp_filtered
+```
