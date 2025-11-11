@@ -23,9 +23,9 @@ basic workflow, written in Python and uses the following tools / packages:
 
 - uv (package dependency manager)
 - quarto (report renderer)
-- pandas (data wrangling)
+- pandas (data wrangling) via dask
 - altair (data visualization)
-- geopandas (geospatial analysis)
+- geopandas (geospatial analysis) via dask-geopandas
 - darts (time series analysis)
 
 The diagram of the different processes applied to the data is shown below:
@@ -65,19 +65,24 @@ from pathlib import Path
 from datetime import datetime, timedelta
 
 import pandas as pd
+import dask.dataframe as dd
+# from dask.distributed import Client
 import geopandas as gpd
+import dask_geopandas
 import missingno as msno
 import altair as alt
 import folium
 
 # Parameters
-max_raw_rows = 150000
+# max_raw_rows = 150000
 max_rows_chunk = 200000
 
 cwd = Path.cwd()
 data_raw = cwd.parent.joinpath("data/01_raw")
 data_intermediate = cwd.parent.joinpath("data/02_intermediate")
 data_primary = cwd.parent.joinpath("data/03_primary")
+
+# client = Client()
 ```
 
 ```{python}
@@ -104,23 +109,11 @@ such as timestamp for the combined date + hour information. The geographic infor
 or floats, will have to be converted for geospatial analysis. This will be done by converting the whole data 
 type from a pandas normal DataFrame to a geopandas GeoDataFrame (which will retain all of its previous columns plus a 'geometry' column).
 
-However, as the raw data contains 3.4M+ rows (and we will be expanding it even more), the first step will be to split the big dataframe into smaller chunks. Then each chunk will be processed separately and saved as a parquet file.
-
 ```{python}
 #| eval: false
 
-# Optional filter to speed up processes
-# Remove for complete analysis
-
-df_raw = df_raw.iloc[:max_raw_rows]
-df_raw.info()
-```
-
-```{python}
-#| eval: false
-
-# Pivot the data and save as parquet
-def pivoting_raw_data(df_raw: pd.DataFrame) -> pd.DataFrame:
+# Pivot the data and save as parquet (using dask)
+def pivoting_raw_data(df_raw: dd) -> dd:
     df_pivoted = (
         df_raw
         .drop(columns=["Georeferència"])
@@ -131,47 +124,44 @@ def pivoting_raw_data(df_raw: pd.DataFrame) -> pd.DataFrame:
         var_name="HORA", value_name="VALOR")
     )
     return df_pivoted
-
-print(f"Total number of rows: {df_raw.shape[0]}")
-
-index = 1
-for i in range(0, df_raw.shape[0], max_rows_chunk):
-    chunk = df_raw.iloc[i:i+max_rows_chunk,:]
-    pivoted_chunk = pivoting_raw_data(chunk)
-    pivoted_chunk.to_parquet(data_intermediate.joinpath(f"air_quality_df_{index}.parquet"), engine="pyarrow")
-    index += 1
-
-del df_raw, pivoted_chunk, chunk, i, index
+dd_raw = dd.from_pandas(df_raw, chunksize=max_rows_chunk)
+del df_raw
+dd_pivoted = pivoting_raw_data(dd_raw)
+del dd_raw
+dd_pivoted.to_parquet(data_intermediate.joinpath("pivoted_logs.parquet"), filesystem="arrow")
+del dd_pivoted
 ```
 
 ```{python}
 #| eval: false
 
-# Load the first chunk of data.
-df_bronze = pd.read_parquet(data_intermediate.joinpath("air_quality_df_1.parquet"))
+dd_pivoted = dd.read_parquet(data_intermediate.joinpath("pivoted_logs.parquet/part.0.parquet"), filesystem="arrow")
 ```
 
 ```{python}
 #| eval: false
 
 # Convert the date and time columns to a single timestamp column.
-def transform_datetime(df_old: pd.DataFrame) -> pd.DataFrame:
-    df_old.loc[:, "HORA"] = df_old.loc[:, "HORA"].str.replace("h", "").astype(int)-1
+def transform_datetime(df_old: dd) -> dd:
+    df_old = df_old.assign(
+        HORA_tmp = df_old.loc[:,"HORA"].str[:-1].replace("24","00").astype(int)
+    )
     df_new = df_old.assign(
-        DATA_HORA=lambda s: s.apply(
-            lambda row: datetime.strptime(
-                row.loc["DATA"] + " " + str(row.loc["HORA"]) + ":00"
-            , "%d/%m/%Y %H:%M"
-            ) + timedelta(hours=1),
-        axis=1
+        DATA_HORA = dd.to_datetime(
+        df_old.loc[:,"DATA"] + " " + df_old.loc[:,"HORA_tmp"].astype(str), 
+        format="%d/%m/%Y %H"
         )
-    ).drop(columns=["DATA", "HORA"])
+    ).drop(columns=["DATA", "HORA", "HORA_tmp"])
     return df_new
 
-df_bronze = transform_datetime(df_bronze)
-os.remove(data_intermediate.joinpath("air_quality_df_1.parquet"))
-df_bronze.to_parquet(data_intermediate.joinpath("air_quality_df_1.parquet"))
-del df_bronze
+dd_bronze = transform_datetime(dd_pivoted)
+del dd_pivoted
+dd_bronze.to_parquet(data_intermediate.joinpath("air_log_bronze.parquet"), filesystem="arrow")
+del dd_bronze
+```
+
+```{python}
+dd_bronze = dd.read_parquet(data_intermediate.joinpath("air_log_bronze.parquet/part.0.parquet"), filesystem="arrow").persist()
 ```
 
 ## Missing data and incorrect values
@@ -180,9 +170,8 @@ At this point it's important to check data consistency and missing values, and p
 
 ```{python}
 # Plot missing values matrix to identify broad patterns
-df_bronze = pd.read_parquet(data_intermediate.joinpath("air_quality_df_1.parquet"))
-msno.matrix(df_bronze); # global view
-msno.matrix(df_bronze.iloc[:300000]); # local view
+msno.matrix(dd_bronze.compute()); # global view
+msno.matrix(dd_bronze.head(300000)); # local view
 ```
 
 
@@ -192,16 +181,16 @@ For the first one, knowing that only ~6% of the info is missing and that it's th
 
 ```{python}
 # Plot missing values when removing station lack of info samples
-msno.matrix(df_bronze.dropna(subset="NOM ESTACIO"));
+msno.matrix(dd_bronze.dropna(subset="NOM ESTACIO").compute());
 ```
 
 For the second one, if there is a measurement value in "VALOR" we will try to fill the missing info based on the other rows of the dataset (the stations don't change over time, nor the "MAGNITUD" units).
 
 ```{python}
 # Apply missing data plan
-def input_missing_data(df_missing: pd.DataFrame) -> pd.DataFrame:
-    df_missing = df_missing.dropna(subset=["VALOR"]).reset_index(drop=False); # drop missing measurements
-    df_missing.replace({"ALTITUD": {0: pd.NA}, "LATITUD": {0: pd.NA}, "LONGITUD": {0: pd.NA}}, inplace=True) # clear wrong geopositional data (0 -> NaN)
+def input_missing_data(df_missing: dd) -> dd:
+    df_missing = df_missing.dropna(subset=["VALOR"]).reset_index(drop=False).rename(columns={"__null_dask_index__":"index"}) # drop missing measurements
+    df_missing = df_missing.replace({"ALTITUD": {0: pd.NA}, "LATITUD": {0: pd.NA}, "LONGITUD": {0: pd.NA}}) # clear wrong geopositional data (0 -> NaN)
 
     df_missing_info = df_missing.query("`NOM ESTACIO`.isna()").loc[:, ["index", "CODI EOI", "MAGNITUD", "DATA_HORA"]]
 
@@ -209,20 +198,27 @@ def input_missing_data(df_missing: pd.DataFrame) -> pd.DataFrame:
     df_correct_info = df_missing.dropna(
         subset=["NOM ESTACIO"]
         ).query(
-            "`CODI EOI` in (@df_missing_eoi_list)"
+            "`CODI EOI` in @df_missing_eoi_list",
+            local_dict={"df_missing_eoi_list":df_missing_eoi_list}
             ).drop(
                 columns=["index", "VALOR", "CODI INE", "CODI COMARCA", "NOM COMARCA", "DATA_HORA"]
             ).groupby(["CODI EOI", "MAGNITUD"]).head(1) # create sample dataframe with correct data to input
 
-    df_merged = pd.merge(df_missing_info, df_correct_info, on=["CODI EOI", "MAGNITUD"], how="left", suffixes=["_x", ""]).drop(columns=["MAGNITUD", "DATA_HORA"]).set_index("index")
+    df_merged = dd.merge(df_missing_info, df_correct_info, on=["CODI EOI", "MAGNITUD"], how="left", suffixes=["_x", ""]).drop(columns=["MAGNITUD", "DATA_HORA"]).set_index("index")
 
-    df_clean = df_missing.set_index("index").combine_first(df_merged) # merge both keeping the correct info if available
+    df_clean = df_missing.set_index("index").combine_first(df_merged).reset_index(drop=True) # merge both keeping the correct info if available
 
     return df_clean.loc[:,['CODI EOI', 'NOM ESTACIO', 'CODI INE', 'MUNICIPI', 'CODI COMARCA', 'NOM COMARCA', 'TIPUS ESTACIO', 'AREA URBANA', 'LATITUD', 'LONGITUD', 'ALTITUD',   
         'MAGNITUD', 'CONTAMINANT', 'UNITATS', 'DATA_HORA', 'VALOR']]
-df_bronze_clean = input_missing_data(df_bronze)
-del df_bronze
-df_bronze_clean.head()
+dd_bronze_clean = input_missing_data(dd_bronze)
+del dd_bronze
+dd_bronze_clean.to_parquet(data_intermediate.joinpath("air_log_bronze.parquet"), filesystem="arrow")
+dd_bronze_clean.head()
+del dd_bronze_clean
+```
+
+```{python}
+dd_bronze_clean = dd.read_parquet(data_intermediate.joinpath("air_log_bronze.parquet"), filesystem="arrow")
 ```
 
 And finally, let's convert the pandas DataFrame to a geopandas GeoDataFrame (with the geometry correctly encoded).
@@ -230,18 +226,23 @@ And finally, let's convert the pandas DataFrame to a geopandas GeoDataFrame (wit
 ```{python}
 #| eval: false
 # Create a geodataframe with the geometry taken from the coordinates in "LATITUD" and "LONGITUD"
-def create_geodataframe(df_new: pd.DataFrame) -> gpd.GeoDataFrame:
-
-    gdf_new = gpd.GeoDataFrame(
-        df_new, geometry=gpd.points_from_xy(
-            df_new.loc[:,"LONGITUD"], df_new.loc[:,"LATITUD"],crs="EPSG:4326"
+def create_geodataframe(df_new: dd) -> dask_geopandas.GeoDataFrame:
+    # Temporal solution as dd -> dgdf seems not to work
+    gdf_mid = gpd.GeoDataFrame(
+        data=df_new, 
+        geometry=gpd.points_from_xy(
+            df_new.loc[:,"LONGITUD"], 
+            df_new.loc[:,"LATITUD"],
+            crs="EPSG:4326"
         )
-    ).drop(columns=["LATITUD", "LONGITUD"])
+    )
+
+    gdf_new = dask_geopandas.from_geopandas(gdf_mid)
     return gdf_new
 
-gdf_bronze = create_geodataframe(df_bronze_clean)
-gdf_bronze.to_parquet(data_primary.joinpath("air_quality_bronze_1.parquet"), engine="pyarrow")
-del df_bronze_clean, gdf_bronze
+dgdf_bronze = create_geodataframe(dd_bronze_clean)
+# dgdf_bronze.to_parquet(data_primary.joinpath("air_quality_bronze.parquet"), filesystem="arrow")
+# del dd_bronze_clean, dgdf_bronze
 ```
 
 ```{python}
