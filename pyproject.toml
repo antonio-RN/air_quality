@@ -29,6 +29,7 @@ dependencies = [
  "vl-convert-python>=1.8.0",
  "numpy>=2.3.4",
  "dask-geopandas>=0.5.0",
+ "darts>=0.29.0",
 ]
 
 [project.scripts]
