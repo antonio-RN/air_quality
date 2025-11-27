@@ -187,6 +187,7 @@ msno.matrix(dd_bronze.dropna(subset="NOM ESTACIO").compute());
 For the second one, if there is a measurement value in "VALOR" we will try to fill the missing info based on the other rows of the dataset (the stations don't change over time, nor the "MAGNITUD" units).
 
 ```{python}
+#| eval: false
 # Apply missing data plan
 def input_missing_data(df_missing: dd) -> dd:
     df_missing = df_missing.dropna(subset=["VALOR"]).reset_index(drop=False).rename(columns={"__null_dask_index__":"index"}) # drop missing measurements
@@ -213,12 +214,12 @@ def input_missing_data(df_missing: dd) -> dd:
 dd_bronze_clean = input_missing_data(dd_bronze)
 del dd_bronze
 dd_bronze_clean.to_parquet(data_intermediate.joinpath("air_log_bronze.parquet"), filesystem="arrow")
-dd_bronze_clean.head()
 del dd_bronze_clean
 ```
 
 ```{python}
 dd_bronze_clean = dd.read_parquet(data_intermediate.joinpath("air_log_bronze.parquet"), filesystem="arrow")
+dd_bronze_clean.head()
 ```
 
 And finally, let's convert the pandas DataFrame to a geopandas GeoDataFrame (with the geometry correctly encoded).
@@ -232,23 +233,23 @@ def create_geodataframe(df_new: dd) -> dask_geopandas.GeoDataFrame:
         data=df_new, 
         geometry=gpd.points_from_xy(
             df_new.loc[:,"LONGITUD"], 
-            df_new.loc[:,"LATITUD"],
-            crs="EPSG:4326"
-        )
+            df_new.loc[:,"LATITUD"]
+        ),
+        crs="EPSG:4326"
     )
 
     gdf_new = dask_geopandas.from_geopandas(gdf_mid)
     return gdf_new
 
-dgdf_bronze = create_geodataframe(dd_bronze_clean)
-# dgdf_bronze.to_parquet(data_primary.joinpath("air_quality_bronze.parquet"), filesystem="arrow")
-# del dd_bronze_clean, dgdf_bronze
+dgdf_bronze = create_geodataframe(dd_bronze_clean.compute())
+dgdf_bronze.to_parquet(data_primary.joinpath("air_quality_bronze.parquet"), filesystem="arrow")
+del dd_bronze_clean, dgdf_bronze
 ```
 
 ```{python}
 # Show first rows of the converted geodataframe
-gdf_bronze = gpd.read_parquet(data_primary.joinpath("air_quality_bronze_1.parquet"))
-gdf_bronze.head()
+dgdf_bronze = dask_geopandas.read_parquet(data_primary.joinpath("air_quality_bronze.parquet"))
+dgdf_bronze.head()
 ```
 
 Now that it seems that the data has the correct format, let's apply this functions to the whole dataset and override the previous bronze .parquet files.
@@ -276,7 +277,7 @@ Let's have a quick look at all the stations in the first data partition.
 ```{python}
 # Plot all the stations
 alt.data_transformers.enable("vegafusion")
-gdf_bronze = gpd.read_parquet("../data/02_intermediate/air_quality_bronze_1.parquet")
+gdf_bronze = gpd.read_parquet(data_primary.joinpath("air_quality_bronze.parquet"))
 gdf_positions = gdf_bronze.drop_duplicates(subset=["CODI EOI"], keep="first")
 gdf_positions.explore(tiles="cartodb positron")
 ```
