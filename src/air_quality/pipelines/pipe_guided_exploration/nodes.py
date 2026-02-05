@@ -4,17 +4,25 @@ generated using Kedro 1.0.0
 """
 import pandas as pd
 from datetime import datetime, timedelta
+import dask.dataframe as dd
+import dask_geopandas
 import geopandas as gpd
 
 
-def reduce_raw(df_raw: pd.DataFrame, max_raw_rows: int) -> pd.DataFrame:
-    df_raw_reduced = df_raw.iloc[:max_raw_rows]
-    return df_raw_reduced
+def convert_to_dask(df_raw: pd.DataFrame, max_rows_chunk: int) -> dd:
+    dd_raw = dd.from_pandas(df_raw, chunksize=max_rows_chunk)
+    return dd_raw
+
+def reduce_raw(dd_raw: dd, max_raw_rows: int) -> dd:
+    dd_raw_reduced = df_raw.get_partition(0)
+    return dd_raw_reduced
 
 
-def pivoting_raw_data(df_raw: pd.DataFrame) -> pd.DataFrame:
-    df_pivoted = df_raw.drop(columns=["Georeferència"]).melt(
-        id_vars=[
+def pivoting_raw_data(df_raw: dd) -> dd:
+    df_pivoted = (
+        df_raw
+        .drop(columns=["Georeferència"])
+        .melt(id_vars=[
             "CODI EOI",
             "NOM ESTACIO",
             "DATA",
@@ -59,6 +67,7 @@ def pivoting_raw_data(df_raw: pd.DataFrame) -> pd.DataFrame:
         ],
         var_name="HORA",
         value_name="VALOR",
+        )
     )
     return df_pivoted
 

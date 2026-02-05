@@ -4,5 +4,5 @@
 # Documentation for this file format can be found in "Parameters"
 # Link: https://docs.kedro.org/en/1.0.0/configuration/parameters.html
 
-max_raw_rows: 500000
-# max_rows_chunk: 200000
+max_raw_rows: 100000
+max_rows_chunk: 200000

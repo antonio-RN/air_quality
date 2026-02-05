@@ -2,20 +2,23 @@ air_quality_log:
   type: pandas.CSVDataset
   filepath: data/01_raw/airquality_raw_20250514.csv
 
-air_quality_transform:
+dd_log_bronze@dask:
+  type: dask.ParquetDataset
+  filepath: data/02_intermediate/dd_log_bronze.parquet
+  load_args:
+    engine: pyarrow
+  save_args:
+    engine: pyarrow
+
+dd_log_bronze@pandas:
   type: pandas.ParquetDataset
-  filepath: data/02_intermediate/air_quality_df_1.parquet
+  filepath: data/02_intermediate/dd_log_bronze.parquet
   load_args:
     engine: pyarrow
   save_args:
     engine: pyarrow
 
-air_quality_bronze:
+gdf_log_bronze:
   type: geopandas.GenericDataset
-  filepath: data/02_intermediate/air_quality_bronze.parquet
+  filepath: data/02_intermediate/gdf_log_bronze.parquet
   file_format: parquet
-  load_args:
-    engine: pyarrow
-  save_args:
-    engine: pyarrow
-
