@@ -5,6 +5,7 @@ generated using Kedro 1.0.0
 
 from kedro.pipeline import Node, Pipeline  # noqa
 from .nodes import (
+    convert_to_dask,
     reduce_raw,
     pivoting_raw_data,
     transform_datetime,
@@ -17,29 +18,34 @@ def create_pipeline(**kwargs) -> Pipeline:
     return Pipeline(
         [
             Node(
+                func=convert_to_dask,
+                inputs=["air_quality_log", "params:max_rows_chunk"],
+                outputs="dd_log_raw",
+            ),
+            Node(
                 func=reduce_raw,
-                inputs=["air_quality_log", "params:max_raw_rows"],
-                outputs="air_quality_log_r",
+                inputs=["dd_log_raw", "params:max_raw_rows"],
+                outputs="dd_log_raw_r",
             ),
             Node(
                 func=pivoting_raw_data,
-                inputs="air_quality_log_r",  # change to "air_quality_log_r" if the first node is not commented out
-                outputs="air_quality_transform",
+                inputs="dd_log_raw_r",  # change to "air_quality_log_r" if the previous node is not commented out
+                outputs="dd_log_pivoted",
             ),
             Node(
                 func=transform_datetime,
-                inputs="air_quality_transform",
-                outputs="air_quality_transform_2",
+                inputs="dd_log_pivoted",
+                outputs="dd_log_datetime",
             ),
             Node(
                 func=input_missing_data,
-                inputs="air_quality_transform_2",
-                outputs="air_quality_transform_3",
+                inputs="dd_log_datetime",
+                outputs="dd_log_clean",
             ),
             Node(
                 func=create_geodataframe,
-                inputs="air_quality_transform_3",
-                outputs="air_quality_bronze",
+                inputs="dd_log_clean",
+                outputs="gdd_log_bronze",
             ),
         ]
     )

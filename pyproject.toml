@@ -11,7 +11,7 @@ dependencies = [
  "ipython>=8.10",
  "jupyterlab>=3.0",
  "notebook",
- "kedro-datasets[matplotlib-matplotlibwriter,pandas-csvdataset,pandas-exceldataset,pandas-parquetdataset,plotly-jsondataset,plotly-plotlydataset]>=3.0",
+ "kedro-datasets[pandas-csvdataset,pandas-exceldataset,pandas-parquetdataset,plotly-jsondataset,plotly-plotlydataset]>=3.0",
  "kedro-viz>=6.7.0",
  "scikit-learn~=1.5.1",
  "seaborn~=0.12.1",
@@ -71,6 +71,3 @@ attr = "air_quality.__version__"
 [tool.setuptools.packages.find]
 where = [ "src",]
 namespaces = false
-
-[tool.kedro_telemetry]
-project_id = "3c288ecc929e4ec2b94c034a4ad43675"

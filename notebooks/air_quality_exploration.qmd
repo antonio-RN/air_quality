@@ -55,6 +55,8 @@ print(f"Python version (virtual environment):{py_ver[0]}\n\n")
 The raw data is a unique CSV file with the following columns and data types:
 
 ```{python}
+#| output: false
+
 # Import libraries and read parameters
 %load_ext kedro.ipython
 
@@ -66,16 +68,13 @@ from datetime import datetime, timedelta
 
 import pandas as pd
 import dask.dataframe as dd
+import numpy as np
 # from dask.distributed import Client
 import geopandas as gpd
 import dask_geopandas
 import missingno as msno
 import altair as alt
 import folium
-
-# Parameters
-# max_raw_rows = 150000
-max_rows_chunk = 200000
 
 cwd = Path.cwd()
 data_raw = cwd.parent.joinpath("data/01_raw")
@@ -88,7 +87,16 @@ data_primary = cwd.parent.joinpath("data/03_primary")
 ```{python}
 # Load raw data from the catalog
 df_raw = catalog.load("air_quality_log");
+dd_raw = dd.from_pandas(df_raw, chunksize=context.params["max_raw_rows"])
 df_raw.info()
+del df_raw
+```
+
+```{python}
+#| eval: false
+
+# Use only first partition(s) to optimize EDA
+dd_raw = dd_raw.partitions[0:2]
 ```
 
 The contained data can be divided in the following categories:
@@ -112,7 +120,7 @@ type from a pandas normal DataFrame to a geopandas GeoDataFrame (which will reta
 ```{python}
 #| eval: false
 
-# Pivot the data and save as parquet (using dask)
+# Pivot the data
 def pivoting_raw_data(df_raw: dd) -> dd:
     df_pivoted = (
         df_raw
@@ -124,18 +132,9 @@ def pivoting_raw_data(df_raw: dd) -> dd:
         var_name="HORA", value_name="VALOR")
     )
     return df_pivoted
-dd_raw = dd.from_pandas(df_raw, chunksize=max_rows_chunk)
-del df_raw
-dd_pivoted = pivoting_raw_data(dd_raw)
+
+dd_pivoted = dd_raw.map_partitions(pivoting_raw_data)
 del dd_raw
-dd_pivoted.to_parquet(data_intermediate.joinpath("pivoted_logs.parquet"), filesystem="arrow")
-del dd_pivoted
-```
-
-```{python}
-#| eval: false
-
-dd_pivoted = dd.read_parquet(data_intermediate.joinpath("pivoted_logs.parquet/part.0.parquet"), filesystem="arrow")
 ```
 
 ```{python}
@@ -148,20 +147,14 @@ def transform_datetime(df_old: dd) -> dd:
     )
     df_new = df_old.assign(
         DATA_HORA = dd.to_datetime(
-        df_old.loc[:,"DATA"] + " " + df_old.loc[:,"HORA_tmp"].astype(str), 
+        df_old.loc[:,"DATA"].astype(str) + " " + df_old.loc[:,"HORA_tmp"].astype(str), 
         format="%d/%m/%Y %H"
         )
     ).drop(columns=["DATA", "HORA", "HORA_tmp"])
     return df_new
 
-dd_bronze = transform_datetime(dd_pivoted)
+dd_bronze = dd_pivoted.map_partitions(transform_datetime, meta=transform_datetime(dd_pivoted.head(1)))
 del dd_pivoted
-dd_bronze.to_parquet(data_intermediate.joinpath("air_log_bronze.parquet"), filesystem="arrow")
-del dd_bronze
-```
-
-```{python}
-dd_bronze = dd.read_parquet(data_intermediate.joinpath("air_log_bronze.parquet/part.0.parquet"), filesystem="arrow").persist()
 ```
 
 ## Missing data and incorrect values
@@ -190,8 +183,8 @@ For the second one, if there is a measurement value in "VALOR" we will try to fi
 #| eval: false
 # Apply missing data plan
 def input_missing_data(df_missing: dd) -> dd:
-    df_missing = df_missing.dropna(subset=["VALOR"]).reset_index(drop=False).rename(columns={"__null_dask_index__":"index"}) # drop missing measurements
-    df_missing = df_missing.replace({"ALTITUD": {0: pd.NA}, "LATITUD": {0: pd.NA}, "LONGITUD": {0: pd.NA}}) # clear wrong geopositional data (0 -> NaN)
+    df_missing = df_missing.dropna(subset=["VALOR"]).reset_index(drop=False) # drop missing measurements
+    df_missing = df_missing.replace({"ALTITUD": {0: np.nan}, "LATITUD": {0: np.nan}, "LONGITUD": {0: np.nan}}) # clear wrong geopositional data (0 -> NaN)
 
     df_missing_info = df_missing.query("`NOM ESTACIO`.isna()").loc[:, ["index", "CODI EOI", "MAGNITUD", "DATA_HORA"]]
 
@@ -206,69 +199,44 @@ def input_missing_data(df_missing: dd) -> dd:
             ).groupby(["CODI EOI", "MAGNITUD"]).head(1) # create sample dataframe with correct data to input
 
     df_merged = dd.merge(df_missing_info, df_correct_info, on=["CODI EOI", "MAGNITUD"], how="left", suffixes=["_x", ""]).drop(columns=["MAGNITUD", "DATA_HORA"]).set_index("index")
-
-    df_clean = df_missing.set_index("index").combine_first(df_merged).reset_index(drop=True) # merge both keeping the correct info if available
+    
+    df_clean = df_missing.set_index("index").combine_first(df_merged.compute()).reset_index(drop=True) # merge both keeping the correct info if available
 
     return df_clean.loc[:,['CODI EOI', 'NOM ESTACIO', 'CODI INE', 'MUNICIPI', 'CODI COMARCA', 'NOM COMARCA', 'TIPUS ESTACIO', 'AREA URBANA', 'LATITUD', 'LONGITUD', 'ALTITUD',   
         'MAGNITUD', 'CONTAMINANT', 'UNITATS', 'DATA_HORA', 'VALOR']]
-dd_bronze_clean = input_missing_data(dd_bronze)
-del dd_bronze
-dd_bronze_clean.to_parquet(data_intermediate.joinpath("air_log_bronze.parquet"), filesystem="arrow")
-del dd_bronze_clean
-```
 
-```{python}
-dd_bronze_clean = dd.read_parquet(data_intermediate.joinpath("air_log_bronze.parquet"), filesystem="arrow")
-dd_bronze_clean.head()
+dd_bronze_clean = dd_bronze.map_partitions(input_missing_data, meta=input_missing_data(dd_bronze.head(1)))
+catalog.save("dd_log_bronze@dask", dd_bronze_clean)
+del dd_bronze, dd_bronze_clean
 ```
 
 And finally, let's convert the pandas DataFrame to a geopandas GeoDataFrame (with the geometry correctly encoded).
 
 ```{python}
 #| eval: false
+
 # Create a geodataframe with the geometry taken from the coordinates in "LATITUD" and "LONGITUD"
-def create_geodataframe(df_new: dd) -> dask_geopandas.GeoDataFrame:
-    # Temporal solution as dd -> dgdf seems not to work
-    gdf_mid = gpd.GeoDataFrame(
-        data=df_new, 
-        geometry=gpd.points_from_xy(
-            df_new.loc[:,"LONGITUD"], 
-            df_new.loc[:,"LATITUD"]
-        ),
+dd_bronze_clean = catalog.load("dd_log_bronze@pandas")     # from now on we work with pandas and geopandas
+def create_geodataframe(df_new: pd.DataFrame) -> gpd.GeoDataFrame:
+    temp_geometry = gpd.points_from_xy(
+        x=df_new.loc[:,"LONGITUD"],
+        y=df_new.loc[:,"LATITUD"],
+    )
+    temp_gpd = gpd.GeoDataFrame(
+        data=df_new.drop(columns=["LATITUD", "LONGITUD"]),
+        geometry=temp_geometry,
         crs="EPSG:4326"
     )
+    # dgdf_new = dask_geopandas.from_geopandas(temp_gpd)
+    return temp_gpd
 
-    gdf_new = dask_geopandas.from_geopandas(gdf_mid)
-    return gdf_new
+gdf_bronze = create_geodataframe(dd_bronze_clean)
 
-dgdf_bronze = create_geodataframe(dd_bronze_clean.compute())
-dgdf_bronze.to_parquet(data_primary.joinpath("air_quality_bronze.parquet"), filesystem="arrow")
-del dd_bronze_clean, dgdf_bronze
+del dd_bronze_clean
+catalog.save("gdf_log_bronze", gdf_bronze)
+gdf_bronze.head()
+del gdf_bronze
 ```
-
-```{python}
-# Show first rows of the converted geodataframe
-dgdf_bronze = dask_geopandas.read_parquet(data_primary.joinpath("air_quality_bronze.parquet"))
-dgdf_bronze.head()
-```
-
-Now that it seems that the data has the correct format, let's apply this functions to the whole dataset and override the previous bronze .parquet files.
-
-```{python}
-#| eval: false
-
-# Apply transformations to the rest of the chunks and create .parquet bronze files
-index = len(glob.glob("*", root_dir=data_intermediate))+1
-for i in range(2, index):
-    df_old = pd.read_parquet(data_intermediate.joinpath(f"air_quality_df_{i}.parquet"))
-    df_new = transform_datetime(df_old)
-    df_new = input_missing_data(df_new)
-    gdf_new = create_geodataframe(df_new)
-    gdf_new.to_parquet(data_primary.joinpath(f"air_quality_bronze_{i}.parquet"), engine="pyarrow")
-    os.remove(data_intermediate.joinpath(f"air_quality_df_{i}.parquet"))
-    del df_old, df_new, gdf_new
-```
-
 
 ## Position of the capture points
 
@@ -276,8 +244,8 @@ Let's have a quick look at all the stations in the first data partition.
 
 ```{python}
 # Plot all the stations
+gdf_bronze = catalog.load("gdf_log_bronze")
 alt.data_transformers.enable("vegafusion")
-gdf_bronze = gpd.read_parquet(data_primary.joinpath("air_quality_bronze.parquet"))
 gdf_positions = gdf_bronze.drop_duplicates(subset=["CODI EOI"], keep="first")
 gdf_positions.explore(tiles="cartodb positron")
 ```
