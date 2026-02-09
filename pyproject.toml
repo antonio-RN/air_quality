@@ -1,73 +1,21 @@
-[build-system]
-requires = [ "setuptools",]
-build-backend = "setuptools.build_meta"
-
 [project]
-requires-python = ">=3.13"
-name = "air_quality"
+name = "air-quality"
+version = "0.1.0"
+description = "Add your description here"
 readme = "README.md"
-dynamic = [ "version",]
+requires-python = ">=3.14"
 dependencies = [
- "ipython>=8.10",
- "jupyterlab>=3.0",
- "notebook",
- "kedro-datasets[pandas-csvdataset,pandas-exceldataset,pandas-parquetdataset,plotly-jsondataset,plotly-plotlydataset]>=3.0",
- "kedro-viz>=6.7.0",
- "scikit-learn~=1.5.1",
- "seaborn~=0.12.1",
- "geopandas>=1.0.1",
- "altair>=5.5.0",
- "pyarrow>=20.0.0",
- "folium>=0.19.7",
- "matplotlib>=3.10.3",
- "mapclassify>=2.9.0",
- "missingno>=0.5.2",
- "kedro>=1.0.0",
- "pyogrio",
- "vegafusion[embed]>=2.0.3",
- "vegafusion-python-embed>=1.6.9",
- "vl-convert-python>=1.8.0",
- "numpy>=2.3.4",
- "dask-geopandas>=0.5.0",
- "darts>=0.29.0",
+    "altair>=6.0.0",
+    "dask>=2026.1.2",
+    "dask-geopandas>=0.5.0",
+    "folium>=0.20.0",
+    "ipykernel>=7.2.0",
+    "missingno>=0.5.2",
+    "pandas>=3.0.0",
+    "pip>=26.0.1",
 ]
 
-[project.scripts]
-air-quality = "air_quality.__main__:main"
-
-[project.optional-dependencies]
-dev = [ "pytest-cov~=3.0", "pytest-mock>=1.7.1, <2.0", "pytest~=7.2", "ruff~=0.1.8",]
-
-[tool.kedro]
-package_name = "air_quality"
-project_name = "air_quality"
-kedro_init_version = "1.0.0"
-tools = "['Linting', 'Testing', 'Custom Logging', 'Data Structure', 'Kedro Viz']"
-example_pipeline = "False"
-source_dir = "src"
-
-[tool.ruff]
-line-length = 88
-show-fixes = true
-select = [ "F", "W", "E", "I", "UP", "PL", "T201",]
-ignore = [ "E501",]
-
-[project.entry-points."kedro.hooks"]
-
-[tool.pytest.ini_options]
-addopts = "--cov-report term-missing --cov src/air_quality -ra"
-
-[tool.coverage.report]
-fail_under = 0
-show_missing = true
-exclude_lines = [ "pragma: no cover", "raise NotImplementedError",]
-
-[tool.ruff.format]
-docstring-code-format = true
-
-[tool.setuptools.dynamic.version]
-attr = "air_quality.__version__"
-
-[tool.setuptools.packages.find]
-where = [ "src",]
-namespaces = false
+[dependency-groups]
+dev = [
+    "ty>=0.0.17",
+]

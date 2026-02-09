@@ -1,20 +1,17 @@
-"""
-This is a boilerplate pipeline 'pipe_guided_exploration'
-generated using Kedro 1.0.0
-"""
 import pandas as pd
+import numpy as np
 from datetime import datetime, timedelta
 import dask.dataframe as dd
-import dask_geopandas
 import geopandas as gpd
+from ..conf import parameters
 
 
-def convert_to_dask(df_raw: pd.DataFrame, max_rows_chunk: int) -> dd:
-    dd_raw = dd.from_pandas(df_raw, chunksize=max_rows_chunk)
+def input_raw_data() -> dd:
+    dd_raw= dd.read_csv(parameters.raw_file, blocksize=parameters.csv_blocksize)
     return dd_raw
 
-def reduce_raw(dd_raw: dd, max_raw_rows: int) -> dd:
-    dd_raw_reduced = df_raw.get_partition(0)
+def reduce_raw(dd_raw: dd, n_partitions: int) -> dd:
+    dd_raw_reduced = dd_raw.partitions[0:n_partitions]
     return dd_raw_reduced
 
 
@@ -72,40 +69,37 @@ def pivoting_raw_data(df_raw: dd) -> dd:
     return df_pivoted
 
 
-def transform_datetime(df_pivoted: pd.DataFrame) -> pd.DataFrame:
-    df_pivoted.loc[:, "HORA"] = (
-        df_pivoted.loc[:, "HORA"].str.replace("h", "").astype(int) - 1
+def transform_datetime(df_pivoted: dd) -> dd:
+    df_pivoted = df_pivoted.assign(
+        HORA_tmp = df_pivoted.loc[:,"HORA"].str[:-1].replace("24","00").astype(int)
     )
-    df_pivoted_datetime = df_pivoted.assign(
-        DATA_HORA=lambda s: s.apply(
-            lambda row: datetime.strptime(
-                row.loc["DATA"] + " " + str(row.loc["HORA"]) + ":00", "%d/%m/%Y %H:%M"
-            )
-            + timedelta(hours=1),
-            axis=1,
+    df_datetime = df_pivoted.assign(
+        DATA_HORA = dd.to_datetime(
+        df_pivoted.loc[:,"DATA"].astype(str) + " " + df_pivoted.loc[:,"HORA_tmp"].astype(str), 
+        format="%d/%m/%Y %H"
         )
-    ).drop(columns=["DATA", "HORA"])
-    return df_pivoted_datetime
+    ).drop(columns=["DATA", "HORA", "HORA_tmp"])
+    return df_datetime
 
 
-def input_missing_data(df_pivoted_datetime: pd.DataFrame) -> pd.DataFrame:
-    df_pivoted_datetime = df_pivoted_datetime.dropna(subset=["VALOR"]).reset_index(
+def input_missing_data(df_pivoted: dd) -> dd:
+    df_pivoted = df_pivoted.dropna(subset=["VALOR"]).reset_index(
         drop=False
     )  # drop missing measurements
-    df_pivoted_datetime.replace(
-        {"ALTITUD": {0: pd.NA}, "LATITUD": {0: pd.NA}, "LONGITUD": {0: pd.NA}},
-        inplace=True,
+    df_pivoted = df_pivoted.replace(
+        {"ALTITUD": {0: np.nan}, "LATITUD": {0: np.nan}, "LONGITUD": {0: np.nan}},
     )  # clear wrong geopositional data (0 -> NaN)
-    df_pivoted_datetime_info = df_pivoted_datetime.query("`NOM ESTACIO`.isna()").loc[
+    df_pivoted_info = df_pivoted.query("`NOM ESTACIO`.isna()").loc[
         :, ["index", "CODI EOI", "MAGNITUD", "DATA_HORA"]
     ]
     df_missing_eoi_list = (
-        df_pivoted_datetime.query("`NOM ESTACIO`.isna()").loc[:, "CODI EOI"].unique()
+        df_pivoted.query("`NOM ESTACIO`.isna()").loc[:, "CODI EOI"].unique()
     )
     df_correct_info = (
-        df_pivoted_datetime.dropna(subset=["NOM ESTACIO"])
-        .query("`CODI EOI` in (@df_missing_eoi_list)")
-        .drop(
+        df_pivoted.dropna(subset=["NOM ESTACIO"])
+        .query("`CODI EOI` in (@df_missing_eoi_list)",
+        local_dict={"df_missing_eoi_list": df_missing_eoi_list}
+        ).drop(
             columns=[
                 "index",
                 "VALOR",
@@ -120,19 +114,19 @@ def input_missing_data(df_pivoted_datetime: pd.DataFrame) -> pd.DataFrame:
     )  # create sample dataframe with correct data to input
 
     df_merged = (
-        pd.merge(
-            df_pivoted_datetime_info,
+        dd.merge(
+            df_pivoted_info,
             df_correct_info,
             on=["CODI EOI", "MAGNITUD"],
             how="left",
             suffixes=["_x", ""],
         )
-        .drop(columns=["CODI EOI", "MAGNITUD", "DATA_HORA"])
+        .drop(columns=["MAGNITUD", "DATA_HORA"])
         .set_index("index")
     )
-    df_bronze = df_pivoted_datetime.set_index("index").combine_first(
-        df_merged
-    )  # merge both keeping the correct info if available
+    df_bronze = df_pivoted.set_index("index").combine_first(
+        df_merged.compute()
+    ).reset_index(drop=True)  # merge both keeping the correct info if available
 
     return df_bronze.loc[
         :,
@@ -158,10 +152,13 @@ def input_missing_data(df_pivoted_datetime: pd.DataFrame) -> pd.DataFrame:
 
 
 def create_geodataframe(df_bronze: pd.DataFrame) -> gpd.GeoDataFrame:
+    temp_geometry =  gpd.points_from_xy(
+        x=df_bronze.loc[:,"LONGITUD"],
+        y=df_bronze.loc[:,"LATITUD"],
+    )
     gdf_bronze = gpd.GeoDataFrame(
-        df_bronze,
-        geometry=gpd.points_from_xy(
-            df_bronze.loc[:, "LONGITUD"], df_bronze.loc[:, "LATITUD"], crs="EPSG:4326"
-        ),
-    ).drop(columns=["LATITUD", "LONGITUD"])
+        data=df_bronze.drop(columns=["LONGITUD", "LATITUD"]),
+        geometry=temp_geometry,
+        crs="EPSG:4326"
+    )
     return gdf_bronze

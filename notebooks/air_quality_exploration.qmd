@@ -18,14 +18,13 @@ The objective of this analysis is to find the biggest contributors to air pollut
 
 ## Project workflow
 
-The analysis will be structured around a [kedro](https://docs.kedro.org/en/stable/introduction/index.html) 
-basic workflow, written in Python and uses the following tools / packages:
+The analysis will be written in Python and uses the following tools / packages:
 
 - uv (package dependency manager)
 - quarto (report renderer)
 - pandas (data wrangling) via dask
-- altair (data visualization)
 - geopandas (geospatial analysis) via dask-geopandas
+- altair (data visualization)
 - darts (time series analysis)
 
 The diagram of the different processes applied to the data is shown below:
@@ -45,9 +44,7 @@ The diagram of the different processes applied to the data is shown below:
 
 # Print basic information about the environment and tools used
 py_ver = !python --version
-print(f"Python version (virtual environment):{py_ver[0]}\n\n")
-
-!kedro info
+print(f"Python version (virtual environment):{py_ver[0]}")
 ```
 
 ## Data structure
@@ -57,9 +54,7 @@ The raw data is a unique CSV file with the following columns and data types:
 ```{python}
 #| output: false
 
-# Import libraries and read parameters
-%load_ext kedro.ipython
-
+# Import necessary modules
 import random as random
 import os
 import glob
@@ -69,7 +64,6 @@ from datetime import datetime, timedelta
 import pandas as pd
 import dask.dataframe as dd
 import numpy as np
-# from dask.distributed import Client
 import geopandas as gpd
 import dask_geopandas
 import missingno as msno
@@ -80,13 +74,12 @@ cwd = Path.cwd()
 data_raw = cwd.parent.joinpath("data/01_raw")
 data_intermediate = cwd.parent.joinpath("data/02_intermediate")
 data_primary = cwd.parent.joinpath("data/03_primary")
-
-# client = Client()
+raw_file = data_raw.join
 ```
 
 ```{python}
 # Load raw data from the catalog
-df_raw = catalog.load("air_quality_log");
+df_raw = pd
 dd_raw = dd.from_pandas(df_raw, chunksize=context.params["max_raw_rows"])
 df_raw.info()
 del df_raw
