@@ -3,19 +3,17 @@ import numpy as np
 from datetime import datetime, timedelta
 import dask.dataframe as dd
 import geopandas as gpd
-from ..conf import parameters
+from pathlib import Path
 
-
-def input_raw_data() -> dd:
-    dd_raw= dd.read_csv(parameters.raw_file, blocksize=parameters.csv_blocksize)
+def input_raw_data(param_raw_file: Path, param_csv_blocksize: str) -> pd.DataFrame:
+    dd_raw= dd.read_csv(param_raw_file, blocksize=param_csv_blocksize, dtype={"Georeferència": "str"})
     return dd_raw
 
-def reduce_raw(dd_raw: dd, n_partitions: int) -> dd:
-    dd_raw_reduced = dd_raw.partitions[0:n_partitions]
+def reduce_raw(dd_raw: pd.DataFrame, param_n_partitions: int) -> pd.DataFrame:
+    dd_raw_reduced = dd_raw.partitions[0:param_n_partitions]
     return dd_raw_reduced
 
-
-def pivoting_raw_data(df_raw: dd) -> dd:
+def pivoting_raw_data(df_raw: pd.DataFrame) -> pd.DataFrame:
     df_pivoted = (
         df_raw
         .drop(columns=["Georeferència"])
@@ -69,7 +67,7 @@ def pivoting_raw_data(df_raw: dd) -> dd:
     return df_pivoted
 
 
-def transform_datetime(df_pivoted: dd) -> dd:
+def transform_datetime(df_pivoted: pd.DataFrame) -> pd.DataFrame:
     df_pivoted = df_pivoted.assign(
         HORA_tmp = df_pivoted.loc[:,"HORA"].str[:-1].replace("24","00").astype(int)
     )
@@ -82,7 +80,7 @@ def transform_datetime(df_pivoted: dd) -> dd:
     return df_datetime
 
 
-def input_missing_data(df_pivoted: dd) -> dd:
+def input_missing_data(df_pivoted: pd.DataFrame) -> pd.DataFrame:
     df_pivoted = df_pivoted.dropna(subset=["VALOR"]).reset_index(
         drop=False
     )  # drop missing measurements
