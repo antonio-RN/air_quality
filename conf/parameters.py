@@ -9,6 +9,6 @@ bronze_geofile = data_folder.joinpath("02_intermediate").joinpath("gdd_log_bronz
 
 # load and save params
 
-csv_blocksize = "10MB"
+csv_blocksize = "100MB"
 n_partitions = 2
 

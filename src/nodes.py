@@ -1,3 +1,4 @@
+from dask.dataframe.dask_expr import DataFrame
 import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
@@ -6,12 +7,12 @@ import geopandas as gpd
 from pathlib import Path
 
 def input_raw_data(param_raw_file: Path, param_csv_blocksize: str) -> pd.DataFrame:
-    dd_raw= dd.read_csv(param_raw_file, blocksize=param_csv_blocksize, dtype={"Georeferència": "str"})
+    dd_raw= dd.read_csv(param_raw_file, blocksize=param_csv_blocksize, dtype={"Georeferència": "str"}, engine="pyarrow")
     return dd_raw
 
-def reduce_raw(dd_raw: pd.DataFrame, param_n_partitions: int) -> pd.DataFrame:
-    dd_raw_reduced = dd_raw.partitions[0:param_n_partitions]
-    return dd_raw_reduced
+def reduce_raw(df_raw: pd.DataFrame, param_n_partitions: int) -> pd.DataFrame:
+    df_raw_reduced: DataFrame = df_raw.partitions[0:param_n_partitions]
+    return df_raw_reduced
 
 def pivoting_raw_data(df_raw: pd.DataFrame) -> pd.DataFrame:
     df_pivoted = (
