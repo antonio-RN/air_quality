@@ -5,10 +5,12 @@ from pathlib import Path
 data_folder = Path.cwd().joinpath("data")
 raw_file = data_folder.joinpath("01_raw").joinpath("airquality_raw_20250514.csv")
 bronze_file = data_folder.joinpath("02_intermediate").joinpath("dd_log_bronze.parquet")
-bronze_geofile = data_folder.joinpath("02_intermediate").joinpath("gdd_log_bronze.parquet")
+bronze_geofile = data_folder.joinpath("02_intermediate").joinpath(
+    "gdd_log_bronze.parquet"
+)
 
 # load and save params
 
 csv_blocksize = "100MB"
-n_partitions = 2
-
+n_partitions = 99
+n_partitions_geo = 50

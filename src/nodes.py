@@ -1,24 +1,28 @@
-from dask.dataframe.dask_expr import DataFrame
 import pandas as pd
 import numpy as np
-from datetime import datetime, timedelta
 import dask.dataframe as dd
 import geopandas as gpd
 from pathlib import Path
 
+
 def input_raw_data(param_raw_file: Path, param_csv_blocksize: str) -> pd.DataFrame:
-    dd_raw= dd.read_csv(param_raw_file, blocksize=param_csv_blocksize, dtype={"Georeferència": "str"}, engine="pyarrow")
+    dd_raw = dd.read_csv(
+        param_raw_file,
+        blocksize=param_csv_blocksize,
+        dtype={"Georeferència": "str"},
+        engine="pyarrow",
+    )
     return dd_raw
+
 
 def reduce_raw(df_raw: pd.DataFrame, param_n_partitions: int) -> pd.DataFrame:
     df_raw_reduced: DataFrame = df_raw.partitions[0:param_n_partitions]
     return df_raw_reduced
 
+
 def pivoting_raw_data(df_raw: pd.DataFrame) -> pd.DataFrame:
-    df_pivoted = (
-        df_raw
-        .drop(columns=["Georeferència"])
-        .melt(id_vars=[
+    df_pivoted = df_raw.drop(columns=["Georeferència"]).melt(
+        id_vars=[
             "CODI EOI",
             "NOM ESTACIO",
             "DATA",
@@ -63,19 +67,20 @@ def pivoting_raw_data(df_raw: pd.DataFrame) -> pd.DataFrame:
         ],
         var_name="HORA",
         value_name="VALOR",
-        )
     )
     return df_pivoted
 
 
 def transform_datetime(df_pivoted: pd.DataFrame) -> pd.DataFrame:
     df_pivoted = df_pivoted.assign(
-        HORA_tmp = df_pivoted.loc[:,"HORA"].str[:-1].replace("24","00").astype(int)
+        HORA_tmp=df_pivoted.loc[:, "HORA"].str[:-1].replace("24", "00").astype(int)
     )
     df_datetime = df_pivoted.assign(
-        DATA_HORA = dd.to_datetime(
-        df_pivoted.loc[:,"DATA"].astype(str) + " " + df_pivoted.loc[:,"HORA_tmp"].astype(str), 
-        format="%d/%m/%Y %H"
+        DATA_HORA=dd.to_datetime(
+            df_pivoted.loc[:, "DATA"].astype(str)
+            + " "
+            + df_pivoted.loc[:, "HORA_tmp"].astype(str),
+            format="%d/%m/%Y %H",
         )
     ).drop(columns=["DATA", "HORA", "HORA_tmp"])
     return df_datetime
@@ -96,9 +101,11 @@ def input_missing_data(df_pivoted: pd.DataFrame) -> pd.DataFrame:
     )
     df_correct_info = (
         df_pivoted.dropna(subset=["NOM ESTACIO"])
-        .query("`CODI EOI` in (@df_missing_eoi_list)",
-        local_dict={"df_missing_eoi_list": df_missing_eoi_list}
-        ).drop(
+        .query(
+            "`CODI EOI` in (@df_missing_eoi_list)",
+            local_dict={"df_missing_eoi_list": df_missing_eoi_list},
+        )
+        .drop(
             columns=[
                 "index",
                 "VALOR",
@@ -123,9 +130,11 @@ def input_missing_data(df_pivoted: pd.DataFrame) -> pd.DataFrame:
         .drop(columns=["MAGNITUD", "DATA_HORA"])
         .set_index("index")
     )
-    df_bronze = df_pivoted.set_index("index").combine_first(
-        df_merged.compute()
-    ).reset_index(drop=True)  # merge both keeping the correct info if available
+    df_bronze = (
+        df_pivoted.set_index("index")
+        .combine_first(df_merged.compute())
+        .reset_index(drop=True)
+    )  # merge both keeping the correct info if available
 
     return df_bronze.loc[
         :,
@@ -151,13 +160,23 @@ def input_missing_data(df_pivoted: pd.DataFrame) -> pd.DataFrame:
 
 
 def create_geodataframe(df_bronze: pd.DataFrame) -> gpd.GeoDataFrame:
-    temp_geometry =  gpd.points_from_xy(
-        x=df_bronze.loc[:,"LONGITUD"],
-        y=df_bronze.loc[:,"LATITUD"],
+    temp_geometry = gpd.points_from_xy(
+        x=df_bronze.loc[:, "LONGITUD"],
+        y=df_bronze.loc[:, "LATITUD"],
     )
     gdf_bronze = gpd.GeoDataFrame(
         data=df_bronze.drop(columns=["LONGITUD", "LATITUD"]),
         geometry=temp_geometry,
-        crs="EPSG:4326"
+        crs="EPSG:4326",
     )
     return gdf_bronze
+
+
+def save_geodataframe(
+    gdf_bronze: gpd.GeoDataFrame,
+    param_n_partitions_geo: int,
+    param_bronze_geofile: Path,
+):
+    temp_gdf_bronze = gdf_bronze.repartition(npartitions=param_n_partitions_geo)
+    temp_gdf_bronze.to_parquet(param_bronze_geofile)
+    pass
