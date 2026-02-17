@@ -11,12 +11,11 @@ The objective of this analysis is to find the biggest contributors to air pollut
 
 ## Project workflow
 
-The analysis will be structured around a [kedro](https://docs.kedro.org/en/stable/introduction/index.html) 
-basic workflow, written in Python and uses the following tools / packages:
+The analysis will be structured around a Prefect pipeline, written in Python and uses the following tools / packages:
 
 - uv (package dependency manager)
 - quarto (report renderer)
-- pandas (data wrangling)
+- pandas (data wrangling) via dask
 - altair (data visualization)
 - geopandas (geospatial analysis)
 - darts (time series analysis)
@@ -33,4 +32,4 @@ The diagram of the different processes applied to the data is shown below:
 
 **WIP --> to be updated as the analysis progresses.**
 
-Head over to `notebooks/air_quality_exploration.html` in order to see the step-by-step analysis of the data. In a future, a complete kedro run will be available to re-run the analysis at your own machine.
+Head over to `notebooks/air_quality_exploration.html` in order to see the step-by-step analysis of the data.

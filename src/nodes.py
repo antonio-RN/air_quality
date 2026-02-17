@@ -3,9 +3,11 @@ import numpy as np
 import dask.dataframe as dd
 import geopandas as gpd
 from pathlib import Path
+from prefect import task
 
 
-def input_raw_data(param_raw_file: Path, param_csv_blocksize: str) -> pd.DataFrame:
+@task
+def input_raw_data(param_raw_file: Path, param_csv_blocksize: str) -> dd.DataFrame:
     dd_raw = dd.read_csv(
         param_raw_file,
         blocksize=param_csv_blocksize,
@@ -15,12 +17,14 @@ def input_raw_data(param_raw_file: Path, param_csv_blocksize: str) -> pd.DataFra
     return dd_raw
 
 
-def reduce_raw(df_raw: pd.DataFrame, param_n_partitions: int) -> pd.DataFrame:
-    df_raw_reduced: DataFrame = df_raw.partitions[0:param_n_partitions]
+@task
+def reduce_raw(df_raw: dd.DataFrame, param_n_partitions: int) -> dd.DataFrame:
+    df_raw_reduced = df_raw.partitions[0:param_n_partitions]
     return df_raw_reduced
 
 
-def pivoting_raw_data(df_raw: pd.DataFrame) -> pd.DataFrame:
+@task
+def pivoting_raw_data(df_raw: dd.DataFrame) -> dd.DataFrame:
     df_pivoted = df_raw.drop(columns=["Georeferència"]).melt(
         id_vars=[
             "CODI EOI",
@@ -71,7 +75,8 @@ def pivoting_raw_data(df_raw: pd.DataFrame) -> pd.DataFrame:
     return df_pivoted
 
 
-def transform_datetime(df_pivoted: pd.DataFrame) -> pd.DataFrame:
+@task
+def transform_datetime(df_pivoted: dd.DataFrame) -> dd.DataFrame:
     df_pivoted = df_pivoted.assign(
         HORA_tmp=df_pivoted.loc[:, "HORA"].str[:-1].replace("24", "00").astype(int)
     )
@@ -86,7 +91,8 @@ def transform_datetime(df_pivoted: pd.DataFrame) -> pd.DataFrame:
     return df_datetime
 
 
-def input_missing_data(df_pivoted: pd.DataFrame) -> pd.DataFrame:
+@task
+def input_missing_data(df_pivoted: dd.DataFrame) -> dd.DataFrame:
     df_pivoted = df_pivoted.dropna(subset=["VALOR"]).reset_index(
         drop=False
     )  # drop missing measurements
@@ -159,7 +165,8 @@ def input_missing_data(df_pivoted: pd.DataFrame) -> pd.DataFrame:
     ]
 
 
-def create_geodataframe(df_bronze: pd.DataFrame) -> gpd.GeoDataFrame:
+@task
+def create_geodataframe(df_bronze: dd.DataFrame) -> gpd.GeoDataFrame:
     temp_geometry = gpd.points_from_xy(
         x=df_bronze.loc[:, "LONGITUD"],
         y=df_bronze.loc[:, "LATITUD"],
@@ -172,6 +179,7 @@ def create_geodataframe(df_bronze: pd.DataFrame) -> gpd.GeoDataFrame:
     return gdf_bronze
 
 
+@task
 def save_geodataframe(
     gdf_bronze: gpd.GeoDataFrame,
     param_n_partitions_geo: int,
