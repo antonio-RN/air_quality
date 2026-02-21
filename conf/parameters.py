@@ -12,5 +12,5 @@ bronze_geofile = data_folder.joinpath("02_intermediate").joinpath(
 # load and save params
 
 csv_blocksize: str = "50MB"
-n_partitions: int = 99
-n_partitions_geo: int = 10
+n_partitions: int = 2
+n_partitions_geo: int = n_partitions * 5

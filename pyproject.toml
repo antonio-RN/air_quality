@@ -15,7 +15,7 @@ dependencies = [
     "missingno>=0.5.2",
     "pandas>=3.0.0",
     "pip>=26.0.1",
-    "prefect>=3.6.17",
+    "prefect[dask]>=3.6.17",
 ]
 
 [dependency-groups]

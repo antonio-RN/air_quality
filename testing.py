@@ -18,6 +18,8 @@ del dd_bronze
 dd_bronze = dd.read_parquet(parameters.bronze_file)
 gdd_bronze = dd_bronze.map_partitions(nodes.create_geodataframe)
 del dd_bronze
-nodes.save_geodataframe(
-    gdd_bronze, parameters.n_partitions_geo, parameters.bronze_geofile
+gdd_bronze.map_partitions(
+    nodes.save_geodataframe,
+    parameters.n_partitions_geo,
+    parameters.bronze_geofile,
 )

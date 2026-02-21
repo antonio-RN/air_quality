@@ -1,3 +1,4 @@
+import dask_geopandas
 import pandas as pd
 import numpy as np
 import dask.dataframe as dd
@@ -24,7 +25,7 @@ def reduce_raw(df_raw: dd.DataFrame, param_n_partitions: int) -> dd.DataFrame:
 
 
 @task
-def pivoting_raw_data(df_raw: dd.DataFrame) -> dd.DataFrame:
+def pivoting_raw_data(df_raw: pd.DataFrame) -> pd.DataFrame:
     df_pivoted = df_raw.drop(columns=["Georeferència"]).melt(
         id_vars=[
             "CODI EOI",
@@ -76,7 +77,7 @@ def pivoting_raw_data(df_raw: dd.DataFrame) -> dd.DataFrame:
 
 
 @task
-def transform_datetime(df_pivoted: dd.DataFrame) -> dd.DataFrame:
+def transform_datetime(df_pivoted: pd.DataFrame) -> pd.DataFrame:
     df_pivoted = df_pivoted.assign(
         HORA_tmp=df_pivoted.loc[:, "HORA"].str[:-1].replace("24", "00").astype(int)
     )
@@ -92,7 +93,7 @@ def transform_datetime(df_pivoted: dd.DataFrame) -> dd.DataFrame:
 
 
 @task
-def input_missing_data(df_pivoted: dd.DataFrame) -> dd.DataFrame:
+def input_missing_data(df_pivoted: pd.DataFrame) -> pd.DataFrame:
     df_pivoted = df_pivoted.dropna(subset=["VALOR"]).reset_index(
         drop=False
     )  # drop missing measurements
@@ -166,25 +167,34 @@ def input_missing_data(df_pivoted: dd.DataFrame) -> dd.DataFrame:
 
 
 @task
-def create_geodataframe(df_bronze: dd.DataFrame) -> gpd.GeoDataFrame:
-    temp_geometry = gpd.points_from_xy(
-        x=df_bronze.loc[:, "LONGITUD"],
-        y=df_bronze.loc[:, "LATITUD"],
+def add_geometry(df_bronze: pd.DataFrame) -> pd.DataFrame:
+    temp_geometry = gpd.points_from_xy(df_bronze.LONGITUD, df_bronze.LATITUD)
+    df_bronze = df_bronze.assign(geometry=temp_geometry)
+    return df_bronze
+
+
+@task
+def create_geodataframe(df_bronze: pd.DataFrame) -> gpd.GeoDataFrame:
+    temp_geometry = dask_geopandas.points_from_xy(
+        df=df_bronze,
+        x="LONGITUD",
+        y="LATITUD",
     )
-    gdf_bronze = gpd.GeoDataFrame(
-        data=df_bronze.drop(columns=["LONGITUD", "LATITUD"]),
-        geometry=temp_geometry,
-        crs="EPSG:4326",
+    df_bronze = df_bronze.assign(geometry=temp_geometry)
+    gdf_bronze = (
+        dask_geopandas.from_dask_dataframe(df_bronze)
+        .drop(columns=["LATITUD", "LONGITUD"])
+        .set_crs("EPSG:4326")
     )
     return gdf_bronze
 
 
 @task
 def save_geodataframe(
-    gdf_bronze: gpd.GeoDataFrame,
+    gdf_bronze: dask_geopandas.GeoDataFrame,
     param_n_partitions_geo: int,
     param_bronze_geofile: Path,
-):
+) -> None:
     temp_gdf_bronze = gdf_bronze.repartition(npartitions=param_n_partitions_geo)
     temp_gdf_bronze.to_parquet(param_bronze_geofile)
-    pass
+    return None
