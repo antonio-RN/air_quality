@@ -84,3 +84,11 @@ venv.bak/
 
 #VS Code
 .vscode
+
+# Prefect runtime
+.prefect/
+prefect.db
+
+# Support files for IA
+AGENTS.md
+docs/
